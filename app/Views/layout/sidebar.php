@@ -192,7 +192,11 @@ $is_rsud_depu_admin = (in_array(session()->get('level'), ['Superadmin', 'kabupat
                 </a>
 
                 <a class="nav-link text-white py-1 small <?= ($segment == 'tpp_dinamis' && $sub_segment == 'kelola_ekin') ? 'active-sub' : 'opacity-50' ?>" href="<?= base_url('tpp_dinamis/kelola_ekin') ?>">
-                    <i class="fas fa-file-upload me-2 text-info"></i> Upload / Kelola E-Kinerja
+                    <i class="fas fa-chart-line me-2 text-info"></i> Kelola E-Kinerja
+                </a>
+
+                <a class="nav-link text-white py-1 small <?= ($segment == 'tpp_dinamis' && $sub_segment == 'kelola_pagu') ? 'active-sub' : 'opacity-50' ?>" href="<?= base_url('tpp_dinamis/kelola_pagu') ?>">
+                    <i class="fas fa-file-invoice-dollar me-2 text-warning"></i> Kelola Pagu TPP
                 </a>
 
                 <?php if (in_array(session()->get('level'), ['Superadmin', 'kabupaten'])): ?>

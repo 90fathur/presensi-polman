@@ -65,6 +65,10 @@ $routes->group('', ['filter' => 'authFilter'], function ($routes) {
     $routes->post('tpp_dinamis/upload_ekin', 'TppDinamis::upload_ekin');
     $routes->post('tpp_dinamis/save_manual_ekin', 'TppDinamis::save_manual_ekin');
     $routes->get('tpp_dinamis/download_template', 'TppDinamis::download_template');
+    $routes->get('tpp_dinamis/kelola_pagu', 'TppDinamis::kelola_pagu');
+    $routes->post('tpp_dinamis/upload_pagu', 'TppDinamis::upload_pagu');
+    $routes->post('tpp_dinamis/save_manual_pagu', 'TppDinamis::save_manual_pagu');
+    $routes->get('tpp_dinamis/download_template_pagu', 'TppDinamis::download_template_pagu');
     $routes->get('tpp_dinamis/setting_opd', 'TppDinamis::setting_opd');
     $routes->post('tpp_dinamis/toggle_opd', 'TppDinamis::toggle_opd');
     // $routes->get('rekap/manual', 'Rekap::manual');

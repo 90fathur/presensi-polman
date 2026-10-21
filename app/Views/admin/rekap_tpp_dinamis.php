@@ -52,17 +52,38 @@
         <div class="d-flex gap-2 flex-wrap">
             <?php if (in_array($level, ['Superadmin', 'kabupaten'])): ?>
                 <a href="<?= base_url('tpp_dinamis/setting_opd') ?>" class="btn btn-outline-dark btn-sm rounded-pill shadow-xs px-3">
-                    <i class="fas fa-sliders-h me-1 text-primary"></i> Pengaturan Prototype OPD
+                    <i class="fas fa-sliders-h me-1 text-primary"></i> Setting OPD
                 </a>
             <?php endif; ?>
 
-            <a href="<?= base_url('tpp_dinamis/download_template?id_opd=' . $selected_opd . '&bulan=' . $bulan . '&tahun=' . $tahun) ?>" class="btn btn-outline-secondary btn-sm rounded-pill shadow-xs px-3">
-                <i class="fas fa-download me-1 text-secondary"></i> Unduh Template Excel
-            </a>
-
-            <button type="button" class="btn btn-primary btn-sm rounded-pill shadow-sm px-3" data-bs-toggle="modal" data-bs-target="#modalUploadEkin">
-                <i class="fas fa-file-upload me-1"></i> Upload E-Kinerja / TPP
+            <!-- TOMBOL UPLOAD E-KINERJA -->
+            <button type="button" class="btn btn-info text-white btn-sm rounded-pill shadow-sm px-3 fw-semibold" data-bs-toggle="modal" data-bs-target="#modalUploadEkin">
+                <i class="fas fa-chart-line me-1"></i> Upload E-Kinerja
             </button>
+
+            <!-- TOMBOL UPLOAD PAGU TPP -->
+            <button type="button" class="btn btn-warning text-dark btn-sm rounded-pill shadow-sm px-3 fw-bold" data-bs-toggle="modal" data-bs-target="#modalUploadPagu">
+                <i class="fas fa-coins me-1"></i> Upload Pagu TPP
+            </button>
+
+            <!-- DROPDOWN UNDUH TEMPLATE -->
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm rounded-pill shadow-xs px-3 dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    <i class="fas fa-download me-1"></i> Unduh Template
+                </button>
+                <ul class="dropdown-menu shadow border-0" style="font-size: 0.82rem;">
+                    <li>
+                        <a class="dropdown-item py-2" href="<?= base_url('tpp_dinamis/download_template?id_opd=' . $selected_opd . '&bulan=' . $bulan . '&tahun=' . $tahun) ?>">
+                            <i class="fas fa-file-excel me-2 text-info"></i> Template Capaian E-Kinerja (.xlsx)
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item py-2" href="<?= base_url('tpp_dinamis/download_template_pagu?id_opd=' . $selected_opd) ?>">
+                            <i class="fas fa-file-invoice-dollar me-2 text-warning"></i> Template Master Pagu TPP (.xlsx)
+                        </a>
+                    </li>
+                </ul>
+            </div>
 
             <?php if (!empty($pegawai)): ?>
                 <a href="<?= base_url('tpp_dinamis/excel?id_opd=' . $selected_opd . '&bulan=' . $bulan . '&tahun=' . $tahun . '&status_asn=' . ($selected_status_asn ?? '')) ?>" class="btn btn-success btn-sm rounded-pill shadow-sm px-3">
@@ -414,6 +435,52 @@
     </div>
 </div>
 
+<!-- MODAL UPLOAD MASTER PAGU TPP -->
+<div class="modal fade" id="modalUploadPagu" tabindex="-1" aria-labelledby="modalUploadPaguLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-warning text-dark py-3">
+                <h6 class="modal-title fw-bold" id="modalUploadPaguLabel">
+                    <i class="fas fa-coins me-2"></i> Upload Master Pagu TPP (Beban Kerja & Kondisi Kerja)
+                </h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="formUploadPagu" enctype="multipart/form-data">
+                <div class="modal-body p-4">
+                    <input type="hidden" name="id_opd" value="<?= $selected_opd ?>">
+
+                    <div class="alert alert-warning border-0 py-2 small mb-3">
+                        <i class="fas fa-info-circle me-1"></i>
+                        <b>Keterangan Master Pagu:</b>
+                        <ul class="mb-0 ps-3 mt-1">
+                            <li>Data pagu TPP BK & KK ini bersifat <b>tetap/permanen</b> untuk seluruh bulan.</li>
+                            <li>Dukungan file: Sheet <b>TPP REKAP BK&KK</b> (file resmi BKPSDM) atau <b>Template Pagu TPP</b>.</li>
+                        </ul>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">Pilih File Excel Pagu (.xlsx / .xls)</label>
+                        <input type="file" name="file_excel" class="form-control" accept=".xlsx, .xls, .csv" required>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
+                        <a href="<?= base_url('tpp_dinamis/download_template_pagu?id_opd=' . $selected_opd) ?>" class="small text-decoration-none">
+                            <i class="fas fa-download me-1"></i> Unduh Format Template Pagu
+                        </a>
+                        <span class="small text-muted">Master Nominal TPP</span>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" id="btnSubmitUploadPagu" class="btn btn-warning text-dark fw-bold btn-sm rounded-pill px-4">
+                        <i class="fas fa-upload me-1"></i> Mulai Upload Pagu
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- MODAL EDIT CEPAT PAGU & EKIN -->
 <div class="modal fade" id="modalEditEkin" tabindex="-1" aria-labelledby="modalEditEkinLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -533,6 +600,54 @@
         .catch(err => {
             btn.disabled = false;
             btn.innerHTML = '<i class="fas fa-upload me-1"></i> Mulai Proses';
+            Swal.fire({
+                icon: 'error',
+                title: 'Kesalahan Sistem',
+                text: 'Gagal menghubungi server. Silakan coba kembali.'
+            });
+        });
+    });
+
+    // Form Upload Master Pagu TPP
+    document.getElementById('formUploadPagu').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var form = this;
+        var btn = document.getElementById('btnSubmitUploadPagu');
+        var formData = new FormData(form);
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Mengupload Pagu...';
+
+        fetch('<?= base_url('tpp_dinamis/upload_pagu') ?>', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(res => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-upload me-1"></i> Mulai Upload Pagu';
+
+            if (res.status === 'success') {
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Berhasil!',
+                    text: res.message,
+                    timer: 2500,
+                    showConfirmButton: true
+                }).then(() => {
+                    location.reload();
+                });
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Gagal!',
+                    text: res.message
+                });
+            }
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-upload me-1"></i> Mulai Upload Pagu';
             Swal.fire({
                 icon: 'error',
                 title: 'Kesalahan Sistem',

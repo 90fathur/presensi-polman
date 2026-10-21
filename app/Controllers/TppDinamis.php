@@ -48,6 +48,22 @@ class TppDinamis extends BaseController
                     KEY `idx_tpp_nip_periode` (`nip`, `bulan`, `tahun`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;");
             }
+            if (!$this->db->tableExists('tpp_pagu')) {
+                $this->db->query("CREATE TABLE IF NOT EXISTS `tpp_pagu` (
+                    `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                    `id_opd` INT(11) NOT NULL,
+                    `nip` VARCHAR(50) NOT NULL,
+                    `nama_pegawai` VARCHAR(255) NULL,
+                    `jabatan` VARCHAR(255) NULL,
+                    `tpp_bk` DECIMAL(15,2) NOT NULL DEFAULT '0.00',
+                    `tpp_kk` DECIMAL(15,2) NOT NULL DEFAULT '0.00',
+                    `created_at` DATETIME NULL,
+                    `updated_at` DATETIME NULL,
+                    PRIMARY KEY (`id`),
+                    UNIQUE KEY `idx_pagu_nip` (`nip`),
+                    KEY `idx_pagu_opd` (`id_opd`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;");
+            }
         } catch (\Throwable $e) {
             log_message('error', 'TppDinamis ensure_schema error: ' . $e->getMessage());
         }
@@ -159,30 +175,7 @@ class TppDinamis extends BaseController
 
             // Ambil data E-Kinerja & Pagu TPP (WKE, % Kinerja, TPP BK, TPP KK)
             $nips = array_column($pegawai_raw, 'nip');
-            $ekin_map = [];
-            if (!empty($nips)) {
-                $ekin_rows = $this->db->table('tpp_ekin_data')
-                    ->whereIn('nip', $nips)
-                    ->where('bulan', $bulan)
-                    ->where('tahun', $tahun)
-                    ->get()->getResultArray();
-                foreach ($ekin_rows as $er) {
-                    $ekin_map[$er['nip']] = $er;
-                }
-
-                // Cek fallback jika di bulan ini belum ada tapi ada data bulan sebelumnya untuk pagu dasar TPP BK & KK
-                $fallback_rows = $this->db->table('tpp_ekin_data')
-                    ->whereIn('nip', $nips)
-                    ->orderBy('tahun', 'DESC')
-                    ->orderBy('bulan', 'DESC')
-                    ->get()->getResultArray();
-                $fallback_map = [];
-                foreach ($fallback_rows as $fr) {
-                    if (!isset($fallback_map[$fr['nip']])) {
-                        $fallback_map[$fr['nip']] = $fr;
-                    }
-                }
-            }
+            $resolved_ekin_pagu = $this->resolve_ekin_pagu($nips, $bulan, $tahun);
 
             $no = 1;
             foreach ($pegawai_raw as $pgw) {
@@ -195,13 +188,21 @@ class TppDinamis extends BaseController
                     'tdk' => 0, 'ta' => 0, 'i' => 0, 'a' => 0
                 ];
 
-                $ekin = $ekin_map[$nip] ?? ($fallback_map[$nip] ?? null);
-                
-                $wke = $ekin['wke'] ?? '0';
-                $persen_kinerja = isset($ekin['persen_kinerja']) ? (float)$ekin['persen_kinerja'] : 100.00;
-                $tpp_bk = isset($ekin['tpp_bk']) ? (float)$ekin['tpp_bk'] : 0.00;
-                $tpp_kk = isset($ekin['tpp_kk']) ? (float)$ekin['tpp_kk'] : 0.00;
-                $predikat = $ekin['predikat_kinerja'] ?? 'BAIK';
+                $ep = $resolved_ekin_pagu[$nip] ?? [
+                    'wke'              => '0',
+                    'persen_kinerja'   => 100.00,
+                    'predikat_kinerja' => 'BAIK',
+                    'tpp_bk'           => 0.00,
+                    'tpp_kk'           => 0.00,
+                    'has_pagu'         => false,
+                    'has_ekin'         => false
+                ];
+
+                $wke = $ep['wke'];
+                $persen_kinerja = $ep['persen_kinerja'];
+                $tpp_bk = $ep['tpp_bk'];
+                $tpp_kk = $ep['tpp_kk'];
+                $predikat = $ep['predikat_kinerja'];
 
                 // =========================================================
                 // PERHITUNGAN TPP SESUAI EXCEL SHEET TPP REKAP BK&KK
@@ -572,6 +573,82 @@ class TppDinamis extends BaseController
     }
 
     /**
+     * Helper resolve data ekin & pagu tpp per pegawai
+     */
+    private function resolve_ekin_pagu($nips, $bulan, $tahun)
+    {
+        $ekin_map = [];
+        $pagu_map = [];
+        $fallback_map = [];
+
+        if (!empty($nips)) {
+            // 1. Data E-Kinerja pada periode yang dipilih
+            $ekin_rows = $this->db->table('tpp_ekin_data')
+                ->whereIn('nip', $nips)
+                ->where('bulan', $bulan)
+                ->where('tahun', $tahun)
+                ->get()->getResultArray();
+            foreach ($ekin_rows as $er) {
+                $ekin_map[$er['nip']] = $er;
+            }
+
+            // 2. Data Master Pagu TPP (BK & KK)
+            if ($this->db->tableExists('tpp_pagu')) {
+                $pagu_rows = $this->db->table('tpp_pagu')
+                    ->whereIn('nip', $nips)
+                    ->get()->getResultArray();
+                foreach ($pagu_rows as $pr) {
+                    $pagu_map[$pr['nip']] = $pr;
+                }
+            }
+
+            // 3. Fallback pagu jika belum ada di tpp_pagu tapi ada di tpp_ekin_data periode lain
+            $fallback_rows = $this->db->table('tpp_ekin_data')
+                ->whereIn('nip', $nips)
+                ->where('(tpp_bk > 0 OR tpp_kk > 0)')
+                ->orderBy('tahun', 'DESC')
+                ->orderBy('bulan', 'DESC')
+                ->get()->getResultArray();
+            foreach ($fallback_rows as $fr) {
+                if (!isset($fallback_map[$fr['nip']])) {
+                    $fallback_map[$fr['nip']] = $fr;
+                }
+            }
+        }
+
+        $resolved = [];
+        foreach ($nips as $nip) {
+            $e = $ekin_map[$nip] ?? null;
+            $p = $pagu_map[$nip] ?? ($fallback_map[$nip] ?? null);
+
+            $wke = $e['wke'] ?? '0';
+            $persen_kinerja = isset($e['persen_kinerja']) ? (float)$e['persen_kinerja'] : 100.00;
+            $predikat = $e['predikat_kinerja'] ?? 'BAIK';
+
+            // Pagu TPP: jika bulan ini ada di tpp_ekin_data (>0), gunakan itu, jika tidak gunakan dari master tpp_pagu
+            $tpp_bk = (isset($e['tpp_bk']) && (float)$e['tpp_bk'] > 0) 
+                ? (float)$e['tpp_bk'] 
+                : (isset($p['tpp_bk']) ? (float)$p['tpp_bk'] : 0.00);
+
+            $tpp_kk = (isset($e['tpp_kk']) && (float)$e['tpp_kk'] > 0) 
+                ? (float)$e['tpp_kk'] 
+                : (isset($p['tpp_kk']) ? (float)$p['tpp_kk'] : 0.00);
+
+            $resolved[$nip] = [
+                'wke'              => $wke,
+                'persen_kinerja'   => $persen_kinerja,
+                'predikat_kinerja' => $predikat,
+                'tpp_bk'           => $tpp_bk,
+                'tpp_kk'           => $tpp_kk,
+                'has_pagu'         => ($tpp_bk > 0 || $tpp_kk > 0),
+                'has_ekin'         => ($e !== null)
+            ];
+        }
+
+        return $resolved;
+    }
+
+    /**
      * Halaman Upload & Kelola Data E-Kinerja (Ekin) dan Pagu TPP
      */
     public function kelola_ekin()
@@ -881,7 +958,7 @@ class TppDinamis extends BaseController
     }
 
     /**
-     * Download Template Excel E-Kinerja & Pagu TPP
+     * Download Template Excel Capaian E-Kinerja (Ekin)
      */
     public function download_template()
     {
@@ -895,7 +972,7 @@ class TppDinamis extends BaseController
 
         $builder = $this->db->table('pegawai p')
             ->select('p.nip, p.nama_lengkap, p.pangkat, p.golongan, p.jabatan,
-                      e.wke, e.predikat_kinerja, e.persen_kinerja, e.tpp_bk, e.tpp_kk')
+                      e.wke, e.predikat_kinerja, e.persen_kinerja')
             ->join('tpp_ekin_data e', "p.nip = e.nip AND e.bulan = $bulan AND e.tahun = $tahun", 'left');
 
         if ($id_opd) {
@@ -906,13 +983,13 @@ class TppDinamis extends BaseController
 
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
-        $sheet->setTitle('DATA_EKIN');
+        $sheet->setTitle('CAPAIAN_EKIN');
 
         // Judul
-        $sheet->setCellValue('A1', 'TEMPLATE INPUT E-KINERJA & PAGU TPP');
+        $sheet->setCellValue('A1', 'TEMPLATE CAPAIAN E-KINERJA PEGAWAI');
         $sheet->setCellValue('A2', "OPD: $nama_opd | BULAN: $bulan | TAHUN: $tahun");
-        $sheet->mergeCells('A1:I1');
-        $sheet->mergeCells('A2:I2');
+        $sheet->mergeCells('A1:H1');
+        $sheet->mergeCells('A2:H2');
         $sheet->getStyle('A1:A2')->getFont()->setBold(true)->setSize(12);
 
         // Header
@@ -924,9 +1001,7 @@ class TppDinamis extends BaseController
             'E4' => 'JABATAN',
             'F4' => 'JUMLAH WKE',
             'G4' => 'RATING / PREDIKAT',
-            'H4' => '% KINERJA (0 - 100)',
-            'I4' => 'TPP BK (Beban Kerja)',
-            'J4' => 'TPP KK (Kondisi Kerja)'
+            'H4' => '% KINERJA (0 - 100)'
         ];
 
         foreach ($headers as $cell => $text) {
@@ -936,10 +1011,10 @@ class TppDinamis extends BaseController
         $styleHeader = [
             'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
             'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
-            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '1F2937']],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '0284C7']],
             'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]]
         ];
-        $sheet->getStyle('A4:J4')->applyFromArray($styleHeader);
+        $sheet->getStyle('A4:H4')->applyFromArray($styleHeader);
 
         $row = 5;
         $no = 1;
@@ -952,16 +1027,14 @@ class TppDinamis extends BaseController
             $sheet->setCellValue("F$row", $p['wke'] ?? '0');
             $sheet->setCellValue("G$row", $p['predikat_kinerja'] ?? 'BAIK');
             $sheet->setCellValue("H$row", $p['persen_kinerja'] ?? '100');
-            $sheet->setCellValue("I$row", $p['tpp_bk'] ?? '0');
-            $sheet->setCellValue("J$row", $p['tpp_kk'] ?? '0');
             $row++;
         }
 
-        foreach (range('A', 'J') as $col) {
+        foreach (range('A', 'H') as $col) {
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
 
-        $filename = "Template_Ekin_TPP_" . str_replace(' ', '_', $nama_opd) . "_{$bulan}_{$tahun}.xlsx";
+        $filename = "Template_Ekin_" . str_replace(' ', '_', $nama_opd) . "_{$bulan}_{$tahun}.xlsx";
 
         header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         header('Content-Disposition: attachment;filename="' . $filename . '"');
@@ -970,6 +1043,302 @@ class TppDinamis extends BaseController
         $writer = new Xlsx($spreadsheet);
         $writer->save('php://output');
         exit;
+    }
+
+    /**
+     * Download Template Excel Master Pagu TPP (Beban Kerja & Kondisi Kerja)
+     */
+    public function download_template_pagu()
+    {
+        $id_opd = (int)$this->request->getGet('id_opd');
+        $opd = $this->db->table('opd')->where('id_opd', $id_opd)->get()->getRow();
+        $nama_opd = $opd ? $opd->nama_opd : 'SEMUA_OPD';
+
+        $builder = $this->db->table('pegawai p')
+            ->select('p.nip, p.nama_lengkap, p.pangkat, p.golongan, p.jabatan, g.tpp_bk, g.tpp_kk')
+            ->join('tpp_pagu g', 'p.nip = g.nip', 'left');
+
+        if ($id_opd) {
+            $builder->where('p.id_opd', $id_opd);
+        }
+
+        $pegawai = $builder->orderBy('p.nama_lengkap', 'ASC')->get()->getResultArray();
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('PAGU_TPP');
+
+        $sheet->setCellValue('A1', 'TEMPLATE MASTER PAGU TPP (BEBAN KERJA & KONDISI KERJA)');
+        $sheet->setCellValue('A2', "OPD: $nama_opd");
+        $sheet->mergeCells('A1:G1');
+        $sheet->mergeCells('A2:G2');
+        $sheet->getStyle('A1:A2')->getFont()->setBold(true)->setSize(12);
+
+        $headers = [
+            'A4' => 'NO',
+            'B4' => 'NIP (Wajib)',
+            'C4' => 'NAMA PEGAWAI',
+            'D4' => 'PANGKAT / GOL',
+            'E4' => 'JABATAN',
+            'F4' => 'TPP BK (Beban Kerja)',
+            'G4' => 'TPP KK (Kondisi Kerja)'
+        ];
+
+        foreach ($headers as $cell => $text) {
+            $sheet->setCellValue($cell, $text);
+        }
+
+        $styleHeader = [
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'D97706']],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]]
+        ];
+        $sheet->getStyle('A4:G4')->applyFromArray($styleHeader);
+
+        $row = 5;
+        $no = 1;
+        foreach ($pegawai as $p) {
+            $sheet->setCellValue("A$row", $no++);
+            $sheet->setCellValueExplicit("B$row", (string)$p['nip'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+            $sheet->setCellValue("C$row", $p['nama_lengkap']);
+            $sheet->setCellValue("D$row", $p['pangkat'] . ' (' . $p['golongan'] . ')');
+            $sheet->setCellValue("E$row", $p['jabatan']);
+            $sheet->setCellValue("F$row", $p['tpp_bk'] ?? '0');
+            $sheet->setCellValue("G$row", $p['tpp_kk'] ?? '0');
+            $row++;
+        }
+
+        foreach (range('A', 'G') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        $filename = "Template_Pagu_TPP_" . preg_replace('/[^a-zA-Z0-9]/', '_', $nama_opd) . ".xlsx";
+
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment;filename="' . $filename . '"');
+        header('Cache-Control: max-age=0');
+
+        $writer = new Xlsx($spreadsheet);
+        $writer->save('php://output');
+        exit;
+    }
+
+    /**
+     * Halaman Kelola Data Pagu TPP (Beban Kerja & Kondisi Kerja)
+     */
+    public function kelola_pagu()
+    {
+        $level = session()->get('level');
+        $id_opd_admin = session()->get('id_opd');
+        $request = \Config\Services::request();
+
+        $id_opd = $request->getGet('id_opd');
+        if (!in_array($level, ['Superadmin', 'kabupaten'])) {
+            $id_opd = $id_opd_admin;
+        }
+
+        $list_opd = $this->db->table('opd')->orderBy('nama_opd', 'ASC')->get()->getResultArray();
+        if (empty($id_opd) && !empty($list_opd)) {
+            $id_opd = $list_opd[0]['id_opd'];
+        }
+
+        $opd_info = $id_opd ? $this->db->table('opd')->where('id_opd', $id_opd)->get()->getRow() : null;
+
+        $pegawai = [];
+        if ($id_opd) {
+            $pegawai = $this->db->table('pegawai p')
+                ->select('p.id_pegawai, p.nip, p.nama_lengkap, p.jabatan, p.golongan, p.pangkat,
+                          g.id as id_pagu, g.tpp_bk, g.tpp_kk, g.updated_at')
+                ->join('tpp_pagu g', 'p.nip = g.nip', 'left')
+                ->where('p.id_opd', $id_opd)
+                ->orderBy('p.nama_lengkap', 'ASC')
+                ->get()->getResultArray();
+        }
+
+        return view('admin/kelola_pagu', [
+            'list_opd'     => $list_opd,
+            'selected_opd' => $id_opd,
+            'opd_info'     => $opd_info,
+            'pegawai'      => $pegawai,
+            'level'        => $level
+        ]);
+    }
+
+    /**
+     * Upload File Excel Master Pagu TPP (Beban Kerja & Kondisi Kerja)
+     */
+    public function upload_pagu()
+    {
+        $request = \Config\Services::request();
+        $file = $request->getFile('file_excel');
+        $id_opd = (int)$request->getPost('id_opd');
+
+        if (!$file || !$file->isValid()) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'File tidak valid atau belum dipilih.']);
+        }
+
+        $ext = strtolower($file->getClientExtension());
+        if (!in_array($ext, ['xlsx', 'xls', 'csv'])) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Hanya file format .xlsx, .xls, atau .csv yang diperbolehkan.']);
+        }
+
+        try {
+            $filePath = $file->getTempName();
+            $reader = IOFactory::createReaderForFile($filePath);
+            $spreadsheet = $reader->load($filePath);
+            $sheetNames = $spreadsheet->getSheetNames();
+
+            $parsedPagu = [];
+
+            // Case 1: Terdapat Sheet 'TPP REKAP BK&KK'
+            if (in_array('TPP REKAP BK&KK', $sheetNames)) {
+                $sheet = $spreadsheet->getSheetByName('TPP REKAP BK&KK');
+                $highestRow = $sheet->getHighestRow();
+                for ($r = 12; $r <= $highestRow; $r += 2) {
+                    $nama = trim((string)$sheet->getCell("B$r")->getValue());
+                    $nipRaw = trim((string)$sheet->getCell("B" . ($r + 1))->getValue());
+                    if (empty($nama) && empty($nipRaw)) continue;
+
+                    $nip = preg_replace('/[^0-9]/', '', $nipRaw);
+                    if (empty($nip)) continue;
+
+                    $tpp_bk = (float)$sheet->getCell("F$r")->getValue();
+                    $tpp_kk = (float)$sheet->getCell("G$r")->getValue();
+
+                    $parsedPagu[$nip] = [
+                        'nip'     => $nip,
+                        'nama'    => $nama,
+                        'jabatan' => trim((string)$sheet->getCell("D$r")->getValue()),
+                        'tpp_bk'  => $tpp_bk,
+                        'tpp_kk'  => $tpp_kk
+                    ];
+                }
+            }
+            // Case 2: Template Pagu atau Generic Sheet
+            else {
+                $sheet = $spreadsheet->getActiveSheet();
+                $highestRow = $sheet->getHighestRow();
+                $highestCol = $sheet->getHighestColumn();
+
+                $colMap = [];
+                for ($r = 1; $r <= min(10, $highestRow); $r++) {
+                    for ($c = 'A'; $c <= $highestCol; $c++) {
+                        $val = strtolower(trim((string)$sheet->getCell($c . $r)->getValue()));
+                        if (strpos($val, 'nip') !== false) $colMap['nip'] = $c;
+                        if (strpos($val, 'nama') !== false) $colMap['nama'] = $c;
+                        if (strpos($val, 'jabatan') !== false) $colMap['jabatan'] = $c;
+                        if (strpos($val, 'tpp bk') !== false || strpos($val, 'beban kerja') !== false) $colMap['bk'] = $c;
+                        if (strpos($val, 'tpp kk') !== false || strpos($val, 'kondisi kerja') !== false) $colMap['kk'] = $c;
+                    }
+                    if (isset($colMap['nip']) && (isset($colMap['bk']) || isset($colMap['kk']))) {
+                        $headerRow = $r;
+                        break;
+                    }
+                }
+
+                if (!isset($colMap['nip'])) {
+                    return $this->response->setJSON(['status' => 'error', 'message' => 'Kolom NIP tidak ditemukan pada file Excel. Silakan unduh Template Pagu TPP.']);
+                }
+
+                for ($r = ($headerRow ?? 1) + 1; $r <= $highestRow; $r++) {
+                    $nipRaw = trim((string)$sheet->getCell($colMap['nip'] . $r)->getValue());
+                    $nip = preg_replace('/[^0-9]/', '', $nipRaw);
+                    if (empty($nip)) continue;
+
+                    $nama = isset($colMap['nama']) ? trim((string)$sheet->getCell($colMap['nama'] . $r)->getValue()) : '';
+                    $jabatan = isset($colMap['jabatan']) ? trim((string)$sheet->getCell($colMap['jabatan'] . $r)->getValue()) : '';
+                    $bk = isset($colMap['bk']) ? (float)$sheet->getCell($colMap['bk'] . $r)->getValue() : 0.00;
+                    $kk = isset($colMap['kk']) ? (float)$sheet->getCell($colMap['kk'] . $r)->getValue() : 0.00;
+
+                    $parsedPagu[$nip] = [
+                        'nip'     => $nip,
+                        'nama'    => $nama,
+                        'jabatan' => $jabatan,
+                        'tpp_bk'  => $bk,
+                        'tpp_kk'  => $kk
+                    ];
+                }
+            }
+
+            if (empty($parsedPagu)) {
+                return $this->response->setJSON(['status' => 'error', 'message' => 'Tidak ada data pagu TPP yang dapat dibaca dari file Excel.']);
+            }
+
+            $countSaved = 0;
+            foreach ($parsedPagu as $nip => $p) {
+                $peg = $this->db->table('pegawai')->select('id_opd, nama_lengkap, jabatan')->where('nip', $nip)->get()->getRow();
+                $actual_opd = $peg ? $peg->id_opd : $id_opd;
+                $actual_nama = !empty($p['nama']) ? $p['nama'] : ($peg->nama_lengkap ?? '');
+                $actual_jabatan = !empty($p['jabatan']) ? $p['jabatan'] : ($peg->jabatan ?? '');
+
+                $existingPagu = $this->db->table('tpp_pagu')->where('nip', $nip)->get()->getRow();
+                $payloadPagu = [
+                    'id_opd'       => $actual_opd,
+                    'nip'          => $nip,
+                    'nama_pegawai' => $actual_nama,
+                    'jabatan'      => $actual_jabatan,
+                    'tpp_bk'       => $p['tpp_bk'],
+                    'tpp_kk'       => $p['tpp_kk'],
+                    'updated_at'   => date('Y-m-d H:i:s')
+                ];
+
+                if ($existingPagu) {
+                    $this->db->table('tpp_pagu')->where('nip', $nip)->update($payloadPagu);
+                } else {
+                    $payloadPagu['created_at'] = date('Y-m-d H:i:s');
+                    $this->db->table('tpp_pagu')->insert($payloadPagu);
+                }
+                $countSaved++;
+            }
+
+            return $this->response->setJSON([
+                'status'  => 'success',
+                'message' => "Berhasil memproses $countSaved data Master Pagu TPP!"
+            ]);
+
+        } catch (\Exception $e) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Terjadi kesalahan: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Simpan Manual Pagu TPP per Pegawai
+     */
+    public function save_manual_pagu()
+    {
+        $nip = $this->request->getPost('nip');
+        $tpp_bk = (float)$this->request->getPost('tpp_bk');
+        $tpp_kk = (float)$this->request->getPost('tpp_kk');
+
+        if (empty($nip)) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'NIP wajib diisi.']);
+        }
+
+        $peg = $this->db->table('pegawai')->where('nip', $nip)->get()->getRow();
+        if (!$peg) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Pegawai tidak ditemukan.']);
+        }
+
+        $existing = $this->db->table('tpp_pagu')->where('nip', $nip)->get()->getRow();
+        $payload = [
+            'id_opd'       => $peg->id_opd,
+            'nip'          => $nip,
+            'nama_pegawai' => $peg->nama_lengkap,
+            'jabatan'      => $peg->jabatan,
+            'tpp_bk'       => $tpp_bk,
+            'tpp_kk'       => $tpp_kk,
+            'updated_at'   => date('Y-m-d H:i:s')
+        ];
+
+        if ($existing) {
+            $this->db->table('tpp_pagu')->where('nip', $nip)->update($payload);
+        } else {
+            $payload['created_at'] = date('Y-m-d H:i:s');
+            $this->db->table('tpp_pagu')->insert($payload);
+        }
+
+        return $this->response->setJSON(['status' => 'success', 'message' => 'Master Pagu TPP berhasil disimpan!']);
     }
 
     /**
@@ -1038,17 +1407,7 @@ class TppDinamis extends BaseController
         $potongan_map = $presensi_calc['potongan_map'];
 
         $nips = array_column($pegawai_raw, 'nip');
-        $ekin_map = [];
-        if (!empty($nips)) {
-            $ekin_rows = $this->db->table('tpp_ekin_data')
-                ->whereIn('nip', $nips)
-                ->where('bulan', $bulan)
-                ->where('tahun', $tahun)
-                ->get()->getResultArray();
-            foreach ($ekin_rows as $er) {
-                $ekin_map[$er['nip']] = $er;
-            }
-        }
+        $resolved_ekin_pagu = $this->resolve_ekin_pagu($nips, $bulan, $tahun);
 
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
@@ -1130,12 +1489,12 @@ class TppDinamis extends BaseController
         foreach ($pegawai_raw as $pgw) {
             $nip = $pgw['nip'];
             $pot = $potongan_map[$nip] ?? ['total_persen' => 0];
-            $ekin = $ekin_map[$nip] ?? null;
+            $ep = $resolved_ekin_pagu[$nip] ?? ['wke' => '0', 'persen_kinerja' => 100.00, 'tpp_bk' => 0.00, 'tpp_kk' => 0.00];
 
-            $wke = $ekin['wke'] ?? '0';
-            $persen_kinerja = isset($ekin['persen_kinerja']) ? (float)$ekin['persen_kinerja'] : 100.00;
-            $tpp_bk = isset($ekin['tpp_bk']) ? (float)$ekin['tpp_bk'] : 0.00;
-            $tpp_kk = isset($ekin['tpp_kk']) ? (float)$ekin['tpp_kk'] : 0.00;
+            $wke = $ep['wke'];
+            $persen_kinerja = $ep['persen_kinerja'];
+            $tpp_bk = $ep['tpp_bk'];
+            $tpp_kk = $ep['tpp_kk'];
             $tarif_pph = $this->get_tarif_pph($pgw['golongan'] ?? $pgw['pangkat'] ?? '');
 
             // Row 1: Nama, Pangkat, Jabatan, Data Utama
