@@ -145,6 +145,8 @@
             <form id="formUploadPagu" enctype="multipart/form-data">
                 <div class="modal-body p-4">
                     <input type="hidden" name="id_opd" value="<?= $selected_opd ?>">
+                    <input type="hidden" name="bulan" value="<?= date('n') ?>">
+                    <input type="hidden" name="tahun" value="<?= date('Y') ?>">
 
                     <div class="alert alert-warning border-0 py-2 small mb-3">
                         <i class="fas fa-info-circle me-1"></i>

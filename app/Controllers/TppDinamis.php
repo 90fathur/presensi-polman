@@ -177,6 +177,41 @@ class TppDinamis extends BaseController
     }
 
     /**
+     * Cari sheet BKPSDM (baik bernama 'TPP REKAP BK&KK' maupun file seperti 'rekap tpp presensi.xlsx')
+     */
+    private function find_bkpsdm_sheet(Spreadsheet $spreadsheet)
+    {
+        // 1. Cek nama sheet persis atau mengandung kata 'rekap' dan 'bk'
+        foreach ($spreadsheet->getAllSheets() as $sheet) {
+            $title = strtolower(trim($sheet->getTitle()));
+            if ($title === 'tpp rekap bk&kk' || (strpos($title, 'rekap') !== false && strpos($title, 'bk') !== false)) {
+                return $sheet;
+            }
+        }
+
+        // 2. Cek konten sheet jika nama sheet generic seperti 'Sheet1'
+        foreach ($spreadsheet->getAllSheets() as $sheet) {
+            for ($r = 1; $r <= 6; $r++) {
+                $valB = strtolower(trim((string)$sheet->getCell("B$r")->getValue()));
+                $valF = strtolower(trim((string)$sheet->getCell("F$r")->getValue()));
+                $valG = strtolower(trim((string)$sheet->getCell("G$r")->getValue()));
+                $valL = strtolower(trim((string)$sheet->getCell("L$r")->getValue()));
+                $valE = strtolower(trim((string)$sheet->getCell("E$r")->getValue()));
+
+                $hasNamaNip = (strpos($valB, 'nama/nip') !== false || strpos($valB, 'nama') !== false);
+                $hasJenisTppOrBk = (strpos($valF, 'jenis tpp') !== false || strpos($valF, 'tpp bk') !== false);
+                $hasKkOrKinerja = (strpos($valG, 'tpp kk') !== false || strpos($valL, 'kinerja') !== false || strpos($valE, 'wke') !== false);
+
+                if ($hasNamaNip && ($hasJenisTppOrBk || $hasKkOrKinerja)) {
+                    return $sheet;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Halaman Utama: Rekap TPP BK & KK Dinamis (Beban Kerja 60% & Disiplin 40%)
      */
     public function index()
@@ -695,8 +730,15 @@ class TppDinamis extends BaseController
             $p = $pagu_map[$nip] ?? ($fallback_map[$nip] ?? null);
 
             $wke = $e['wke'] ?? '0';
-            $persen_kinerja = isset($e['persen_kinerja']) ? (float)$e['persen_kinerja'] : 100.00;
             $predikat = $e['predikat_kinerja'] ?? 'BAIK';
+            $persen_kinerja = 100.00;
+            if (isset($e['persen_kinerja'])) {
+                $persen_kinerja = (float)$e['persen_kinerja'];
+                // Jika persen 0 padahal predikat BAIK / SANGAT BAIK (akibat upload lama yg membaca baris kosong), pulihkan ke 100%
+                if ($persen_kinerja <= 0 && in_array(strtoupper($predikat), ['BAIK', 'SANGAT BAIK', ''])) {
+                    $persen_kinerja = 100.00;
+                }
+            }
 
             // Pagu TPP: jika bulan ini ada di tpp_ekin_data (>0), gunakan itu, jika tidak gunakan dari master tpp_pagu
             $tpp_bk = (isset($e['tpp_bk']) && (float)$e['tpp_bk'] > 0) 
@@ -802,9 +844,23 @@ class TppDinamis extends BaseController
         try {
             $filePath = $file->getTempName();
             $reader = IOFactory::createReaderForFile($filePath);
-            $reader->setReadDataOnly(true);
+            $reader->setReadDataOnly(false);
             $spreadsheet = $reader->load($filePath);
             $sheetNames = $spreadsheet->getSheetNames();
+
+            // Optimasi Database: Ambil pegawai untuk pencocokan instan di memory
+            $pegBuilder = $this->db->table('pegawai')->select('id_pegawai, id_opd, nip, nama_lengkap, jabatan');
+            if (!in_array($level, ['Superadmin', 'kabupaten']) && !empty($id_opd_admin)) {
+                $pegBuilder->where('id_opd', $id_opd_admin);
+            }
+            $pegList = $pegBuilder->get()->getResultArray();
+            $pegMap = [];
+            foreach ($pegList as $p) {
+                $cleanNip = preg_replace('/[^0-9]/', '', (string)$p['nip']);
+                if (!empty($cleanNip)) {
+                    $pegMap[$cleanNip] = $p;
+                }
+            }
 
             $bulanMap = [
                 'januari' => 1, 'februari' => 2, 'maret' => 3, 'april' => 4,
@@ -867,6 +923,9 @@ class TppDinamis extends BaseController
                     $nip = preg_replace('/[^0-9]/', '', $nipRaw);
                     if (empty($nip)) continue;
 
+                    // HANYA BANDINGKAN DENGAN MASTER PEGAWAI
+                    if (!isset($pegMap[$nip])) continue;
+
                     $nama = trim((string)($row[4] ?? '')); // Col E (index 4)
                     $predikatRaw = trim((string)($row[16] ?? '')); // Col Q (index 16: hasil_akhir)
                     if (empty($predikatRaw)) {
@@ -878,7 +937,7 @@ class TppDinamis extends BaseController
 
                     $parsedData[$nip] = [
                         'nip'            => $nip,
-                        'nama'           => $nama,
+                        'nama'           => !empty($pegMap[$nip]['nama_lengkap']) ? $pegMap[$nip]['nama_lengkap'] : $nama,
                         'wke'            => '0',
                         'predikat'       => $predikat,
                         'persen_kinerja' => $pct,
@@ -887,37 +946,81 @@ class TppDinamis extends BaseController
                     ];
                 }
             }
-            // Case 1: Terdapat Sheet 'TPP REKAP BK&KK'
-            elseif (in_array('TPP REKAP BK&KK', $sheetNames)) {
-                $sheet = $spreadsheet->getSheetByName('TPP REKAP BK&KK');
+            // Case 1: Terdapat Sheet BKPSDM ('TPP REKAP BK&KK' atau file seperti 'rekap tpp presensi.xlsx')
+            elseif (($bkpsdmSheet = $this->find_bkpsdm_sheet($spreadsheet)) !== null) {
+                $sheet = $bkpsdmSheet;
                 $highestRow = $sheet->getHighestRow();
-                for ($r = 12; $r <= $highestRow; $r += 2) {
-                    $nama = trim((string)$sheet->getCell("B$r")->getValue());
-                    $nipRaw = trim((string)$sheet->getCell("B" . ($r + 1))->getValue());
-                    if (empty($nama) && empty($nipRaw)) continue;
+                for ($r = 1; $r <= $highestRow; $r++) {
+                    $valB = trim((string)$sheet->getCell("B$r")->getValue());
+                    $valBNext = ($r < $highestRow) ? trim((string)$sheet->getCell("B" . ($r + 1))->getValue()) : '';
 
-                    $nip = preg_replace('/[^0-9]/', '', $nipRaw);
-                    if (empty($nip)) continue;
+                    $nipRaw = null;
+                    $nama = null;
+                    $isTwoRow = false;
 
-                    $wke = (string)$sheet->getCell("E$r")->getCalculatedValue();
-                    if (is_array($wke)) $wke = '0';
-                    $tpp_bk = (float)$sheet->getCell("F$r")->getValue();
-                    $tpp_kk = (float)$sheet->getCell("G$r")->getValue();
-                    $pct = (float)$sheet->getCell("L$r")->getCalculatedValue();
-                    if ($pct <= 1.0 && $pct > 0) $pct *= 100;
-                    if ($pct == 0) $pct = 100;
+                    if (preg_match('/(?:nip|\b19\d{16}\b|\b20\d{16}\b)/i', $valBNext) && preg_match('/\d{9,}/', $valBNext)) {
+                        $nipRaw = $valBNext;
+                        $nama = $valB;
+                        $isTwoRow = true;
+                    } elseif (preg_match('/(?:nip|\b19\d{16}\b|\b20\d{16}\b)/i', $valB) && preg_match('/\d{9,}/', $valB)) {
+                        $nipRaw = $valB;
+                        $nama = trim((string)$sheet->getCell("C$r")->getValue());
+                    }
 
-                    $predikat = ($pct < 100) ? ($pct <= 50 ? 'KURANG' : 'BUTUH PERBAIKAN') : 'BAIK';
+                    if ($nipRaw) {
+                        $nip = preg_replace('/[^0-9]/', '', $nipRaw);
+                        if (strlen($nip) >= 9) {
+                            // HANYA BANDINGKAN DENGAN MASTER PEGAWAI
+                            if (!isset($pegMap[$nip])) {
+                                if ($isTwoRow) $r++;
+                                continue;
+                            }
 
-                    $parsedData[$nip] = [
-                        'nip'             => $nip,
-                        'nama'            => $nama,
-                        'wke'             => $wke,
-                        'predikat'        => $predikat,
-                        'persen_kinerja'  => $pct,
-                        'tpp_bk'          => $tpp_bk,
-                        'tpp_kk'          => $tpp_kk
-                    ];
+                            try {
+                                $wke = (string)$sheet->getCell("E$r")->getCalculatedValue();
+                            } catch (\Throwable $t) {
+                                $wke = (string)$sheet->getCell("E$r")->getValue();
+                            }
+                            if (is_array($wke)) $wke = '0';
+
+                            try {
+                                $rawBk = $sheet->getCell("F$r")->getCalculatedValue();
+                            } catch (\Throwable $t) {
+                                $rawBk = $sheet->getCell("F$r")->getValue();
+                            }
+                            try {
+                                $rawKk = $sheet->getCell("G$r")->getCalculatedValue();
+                            } catch (\Throwable $t) {
+                                $rawKk = $sheet->getCell("G$r")->getValue();
+                            }
+
+                            $tpp_bk = is_numeric($rawBk) ? (float)$rawBk : 0.00;
+                            $tpp_kk = is_numeric($rawKk) ? (float)$rawKk : 0.00;
+
+                            try {
+                                $rawPct = $sheet->getCell("L$r")->getCalculatedValue();
+                            } catch (\Throwable $t) {
+                                $rawPct = $sheet->getCell("L$r")->getValue();
+                            }
+                            $pct = is_numeric($rawPct) ? (float)$rawPct : 1.0;
+                            if ($pct <= 1.0 && $pct > 0) $pct *= 100;
+                            if ($pct == 0 && ($tpp_bk > 0 || $tpp_kk > 0)) $pct = 100;
+
+                            $predikat = ($pct < 100) ? ($pct <= 50 ? 'KURANG' : 'BUTUH PERBAIKAN') : 'BAIK';
+
+                            $parsedData[$nip] = [
+                                'nip'             => $nip,
+                                'nama'            => !empty($pegMap[$nip]['nama_lengkap']) ? $pegMap[$nip]['nama_lengkap'] : $nama,
+                                'wke'             => $wke,
+                                'predikat'        => $predikat,
+                                'persen_kinerja'  => $pct,
+                                'tpp_bk'          => $tpp_bk,
+                                'tpp_kk'          => $tpp_kk
+                            ];
+
+                            if ($isTwoRow) $r++;
+                        }
+                    }
                 }
             }
             // Case 2: Terdapat Sheet 'PK PNS'
@@ -1024,16 +1127,6 @@ class TppDinamis extends BaseController
             if ($bulan < 1 || $bulan > 12) $bulan = (int)date('m');
             if ($tahun < 2020 || $tahun > 2035) $tahun = (int)date('Y');
 
-            // Optimasi Database: Ambil pegawai untuk pencocokan instan di memory
-            $pegBuilder = $this->db->table('pegawai')->select('id_pegawai, id_opd, nip, nama_lengkap');
-            if (!in_array($level, ['Superadmin', 'kabupaten'])) {
-                $pegBuilder->where('id_opd', $id_opd_admin);
-            }
-            $pegList = $pegBuilder->get()->getResultArray();
-            $pegMap = [];
-            foreach ($pegList as $p) {
-                $pegMap[$p['nip']] = $p;
-            }
 
             // Ambil data existing tpp_ekin_data pada bulan & tahun ini dalam 1 query
             $existingRows = $this->db->table('tpp_ekin_data')
@@ -1107,6 +1200,48 @@ class TppDinamis extends BaseController
             if (!empty($updateBatch)) {
                 foreach (array_chunk($updateBatch, 500) as $chunk) {
                     $this->db->table('tpp_ekin_data')->updateBatch($chunk, 'id');
+                }
+            }
+
+            // Otomatis sinkronkan TPP BK & KK ke master tpp_pagu jika ada nilainya (> 0)
+            $paguToSync = [];
+            foreach ($parsedData as $nip => $d) {
+                if (($d['tpp_bk'] !== null && (float)$d['tpp_bk'] > 0) || ($d['tpp_kk'] !== null && (float)$d['tpp_kk'] > 0)) {
+                    $paguToSync[$nip] = $d;
+                }
+            }
+
+            if (!empty($paguToSync) && $this->db->tableExists('tpp_pagu')) {
+                $existingPaguRows = $this->db->table('tpp_pagu')
+                    ->whereIn('nip', array_keys($paguToSync))
+                    ->get()->getResultArray();
+                $existingPaguMap = [];
+                foreach ($existingPaguRows as $epr) {
+                    $existingPaguMap[$epr['nip']] = $epr;
+                }
+
+                foreach ($paguToSync as $nip => $ps) {
+                    $peg = $pegMap[$nip] ?? null;
+                    $actual_opd = !empty($peg['id_opd']) ? (int)$peg['id_opd'] : ((int)$id_opd ?: 0);
+                    $actual_nama = !empty($peg['nama_lengkap']) ? $peg['nama_lengkap'] : ($ps['nama'] ?? '');
+                    $actual_jabatan = !empty($peg['jabatan']) ? $peg['jabatan'] : '';
+
+                    $payloadPagu = [
+                        'id_opd'       => $actual_opd,
+                        'nip'          => $nip,
+                        'nama_pegawai' => $actual_nama,
+                        'jabatan'      => $actual_jabatan,
+                        'tpp_bk'       => (float)$ps['tpp_bk'],
+                        'tpp_kk'       => (float)$ps['tpp_kk'],
+                        'updated_at'   => $now
+                    ];
+
+                    if (isset($existingPaguMap[$nip])) {
+                        $this->db->table('tpp_pagu')->where('id', $existingPaguMap[$nip]['id'])->update($payloadPagu);
+                    } else {
+                        $payloadPagu['created_at'] = $now;
+                        $this->db->table('tpp_pagu')->insert($payloadPagu);
+                    }
                 }
             }
 
@@ -1453,45 +1588,85 @@ class TppDinamis extends BaseController
 
             $parsedPagu = [];
 
-            // Case 1: Terdapat Sheet 'TPP REKAP BK&KK'
-            if (in_array('TPP REKAP BK&KK', $sheetNames)) {
-                $sheet = $spreadsheet->getSheetByName('TPP REKAP BK&KK');
+            // Case 1: Terdapat Sheet BKPSDM ('TPP REKAP BK&KK' atau file seperti 'rekap tpp presensi.xlsx')
+            $bkpsdmSheet = $this->find_bkpsdm_sheet($spreadsheet);
+            if ($bkpsdmSheet !== null) {
+                $sheet = $bkpsdmSheet;
                 $highestRow = $sheet->getHighestRow();
-                for ($r = 12; $r <= $highestRow; $r += 2) {
-                    $nipRaw = trim((string)$sheet->getCell("B" . ($r + 1))->getValue());
-                    $nip = preg_replace('/[^0-9]/', '', $nipRaw);
-                    if (empty($nip)) continue;
+                for ($r = 1; $r <= $highestRow; $r++) {
+                    $valB = trim((string)$sheet->getCell("B$r")->getValue());
+                    $valBNext = ($r < $highestRow) ? trim((string)$sheet->getCell("B" . ($r + 1))->getValue()) : '';
 
-                    // HANYA BANDINGKAN DENGAN NIP YANG ADA DI MASTER PEGAWAI
-                    if (!isset($masterPegawai[$nip])) {
-                        continue;
+                    $nipRaw = null;
+                    $nama = null;
+                    $isTwoRow = false;
+
+                    if (preg_match('/(?:nip|\b19\d{16}\b|\b20\d{16}\b)/i', $valBNext) && preg_match('/\d{9,}/', $valBNext)) {
+                        $nipRaw = $valBNext;
+                        $nama = $valB;
+                        $isTwoRow = true;
+                    } elseif (preg_match('/(?:nip|\b19\d{16}\b|\b20\d{16}\b)/i', $valB) && preg_match('/\d{9,}/', $valB)) {
+                        $nipRaw = $valB;
+                        $nama = trim((string)$sheet->getCell("C$r")->getValue());
                     }
 
-                    $nama = trim((string)$sheet->getCell("B$r")->getValue());
-                    $jabatan = trim((string)$sheet->getCell("D$r")->getValue());
+                    if ($nipRaw) {
+                        $nip = preg_replace('/[^0-9]/', '', $nipRaw);
+                        if (strlen($nip) >= 9) {
+                            // HANYA BANDINGKAN DENGAN NIP YANG ADA DI MASTER PEGAWAI
+                            if (!isset($masterPegawai[$nip])) {
+                                if ($isTwoRow) $r++;
+                                continue;
+                            }
 
-                    // Evaluasi nilai (termasuk jika berisi rumus seperti =SUM(499535*80%))
-                    try {
-                        $rawBk = $sheet->getCell("F$r")->getCalculatedValue();
-                    } catch (\Throwable $t) {
-                        $rawBk = $sheet->getCell("F$r")->getValue();
+                            $jabatan = trim((string)$sheet->getCell("D$r")->getValue());
+
+                            // Evaluasi nilai (termasuk jika berisi rumus seperti =SUM(499535*80%))
+                            try {
+                                $rawBk = $sheet->getCell("F$r")->getCalculatedValue();
+                            } catch (\Throwable $t) {
+                                $rawBk = $sheet->getCell("F$r")->getValue();
+                            }
+                            try {
+                                $rawKk = $sheet->getCell("G$r")->getCalculatedValue();
+                            } catch (\Throwable $t) {
+                                $rawKk = $sheet->getCell("G$r")->getValue();
+                            }
+
+                            try {
+                                $rawWke = $sheet->getCell("E$r")->getCalculatedValue();
+                            } catch (\Throwable $t) {
+                                $rawWke = $sheet->getCell("E$r")->getValue();
+                            }
+                            try {
+                                $rawPct = $sheet->getCell("L$r")->getCalculatedValue();
+                            } catch (\Throwable $t) {
+                                $rawPct = $sheet->getCell("L$r")->getValue();
+                            }
+
+                            $tpp_bk = is_numeric($rawBk) ? (float)$rawBk : 0.00;
+                            $tpp_kk = is_numeric($rawKk) ? (float)$rawKk : 0.00;
+                            $wke = (string)$rawWke;
+                            $pct = is_numeric($rawPct) ? (float)$rawPct : 1.0;
+                            if ($pct <= 1.0 && $pct > 0) $pct *= 100;
+                            if ($pct == 0 && ($tpp_bk > 0 || $tpp_kk > 0)) $pct = 100;
+
+                            $predikat = ($pct < 100) ? ($pct <= 50 ? 'KURANG' : 'BUTUH PERBAIKAN') : 'BAIK';
+
+                            $parsedPagu[$nip] = [
+                                'nip'            => $nip,
+                                'nama'           => !empty($masterPegawai[$nip]['nama_lengkap']) ? $masterPegawai[$nip]['nama_lengkap'] : $nama,
+                                'jabatan'        => !empty($masterPegawai[$nip]['jabatan']) ? $masterPegawai[$nip]['jabatan'] : $jabatan,
+                                'tpp_bk'         => $tpp_bk,
+                                'tpp_kk'         => $tpp_kk,
+                                'wke'            => $wke,
+                                'persen_kinerja' => $pct,
+                                'predikat'       => $predikat
+                            ];
+
+                            if ($isTwoRow) $r++;
+                        }
                     }
-                    try {
-                        $rawKk = $sheet->getCell("G$r")->getCalculatedValue();
-                    } catch (\Throwable $t) {
-                        $rawKk = $sheet->getCell("G$r")->getValue();
-                    }
-
-                    $tpp_bk = is_numeric($rawBk) ? (float)$rawBk : 0.00;
-                    $tpp_kk = is_numeric($rawKk) ? (float)$rawKk : 0.00;
-
-                    $parsedPagu[$nip] = [
-                        'nip'     => $nip,
-                        'nama'    => $nama,
-                        'jabatan' => $jabatan,
-                        'tpp_bk'  => $tpp_bk,
-                        'tpp_kk'  => $tpp_kk
-                    ];
                 }
             }
             // Case 2: Template Pagu atau Generic Sheet
@@ -1596,6 +1771,51 @@ class TppDinamis extends BaseController
                     $this->db->table('tpp_pagu')->insert($payloadPagu);
                 }
                 $countSaved++;
+            }
+
+            // Jika terdapat data WKE & Kinerja pada sheet, otomatis update juga ke tpp_ekin_data untuk periode aktif
+            $postBulan = (int)($request->getPost('bulan') ?? date('m'));
+            $postTahun = (int)($request->getPost('tahun') ?? date('Y'));
+            if ($postBulan >= 1 && $postBulan <= 12 && $postTahun >= 2020 && $this->db->tableExists('tpp_ekin_data')) {
+                $existingEkinRows = $this->db->table('tpp_ekin_data')
+                    ->where('bulan', $postBulan)
+                    ->where('tahun', $postTahun)
+                    ->whereIn('nip', array_keys($parsedPagu))
+                    ->get()->getResultArray();
+                $existingEkinMap = [];
+                foreach ($existingEkinRows as $eer) {
+                    $existingEkinMap[$eer['nip']] = $eer;
+                }
+
+                foreach ($parsedPagu as $nip => $p) {
+                    $peg = $masterPegawai[$nip] ?? null;
+                    $actual_opd = !empty($peg['id_opd']) ? (int)$peg['id_opd'] : ((int)$id_opd ?: 0);
+                    $actual_nama = !empty($peg['nama_lengkap']) ? $peg['nama_lengkap'] : ($p['nama'] ?? '');
+                    $wkeVal = !empty($p['wke']) ? (string)$p['wke'] : '0';
+                    $pctVal = isset($p['persen_kinerja']) ? (float)$p['persen_kinerja'] : 100.00;
+                    $predVal = $p['predikat'] ?? 'BAIK';
+
+                    $payloadEkin = [
+                        'id_opd'           => $actual_opd,
+                        'nip'              => $nip,
+                        'nama_pegawai'     => $actual_nama,
+                        'bulan'            => $postBulan,
+                        'tahun'            => $postTahun,
+                        'wke'              => $wkeVal,
+                        'predikat_kinerja' => $predVal,
+                        'persen_kinerja'   => $pctVal,
+                        'tpp_bk'           => (float)$p['tpp_bk'],
+                        'tpp_kk'           => (float)$p['tpp_kk'],
+                        'updated_at'       => $now
+                    ];
+
+                    if (isset($existingEkinMap[$nip])) {
+                        $this->db->table('tpp_ekin_data')->where('id', $existingEkinMap[$nip]['id'])->update($payloadEkin);
+                    } else {
+                        $payloadEkin['created_at'] = $now;
+                        $this->db->table('tpp_ekin_data')->insert($payloadEkin);
+                    }
+                }
             }
 
             return $this->response->setJSON([
