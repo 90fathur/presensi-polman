@@ -365,8 +365,21 @@
             <form id="formUploadEkin" enctype="multipart/form-data">
                 <div class="modal-body p-4">
                     <input type="hidden" name="id_opd" value="<?= $selected_opd ?>">
-                    <input type="hidden" name="bulan" value="<?= $bulan ?>">
-                    <input type="hidden" name="tahun" value="<?= $tahun ?>">
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-7">
+                            <label class="form-label small fw-bold text-muted mb-1">Target Periode Bulan</label>
+                            <select name="bulan" id="upload_target_bulan" class="form-select form-select-sm" required>
+                                <?php foreach ($bln_indo as $num => $nama_bln): ?>
+                                    <option value="<?= $num ?>" <?= ($bulan == $num) ? 'selected' : '' ?>><?= $nama_bln ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-5">
+                            <label class="form-label small fw-bold text-muted mb-1">Target Tahun</label>
+                            <input type="number" name="tahun" id="upload_target_tahun" class="form-control form-control-sm" value="<?= $tahun ?>" required>
+                        </div>
+                    </div>
 
                     <div class="alert alert-info border-0 py-2 small mb-3">
                         <i class="fas fa-info-circle me-1"></i>
@@ -387,7 +400,7 @@
                         <a href="<?= base_url('tpp_dinamis/download_template?id_opd=' . $selected_opd . '&bulan=' . $bulan . '&tahun=' . $tahun) ?>" class="small text-decoration-none">
                             <i class="fas fa-download me-1"></i> Unduh Format Template
                         </a>
-                        <span class="small text-muted">Periode: <?= $bln_indo[$bulan] ?? $bulan ?> <?= $tahun ?></span>
+                        <span class="small text-muted">Aktif: <?= $bln_indo[$bulan] ?? $bulan ?> <?= $tahun ?></span>
                     </div>
                 </div>
                 <div class="modal-footer bg-light py-2">
@@ -505,7 +518,9 @@
                     timer: 2500,
                     showConfirmButton: true
                 }).then(() => {
-                    location.reload();
+                    const targetBln = formData.get('bulan') || '<?= $bulan ?>';
+                    const targetThn = formData.get('tahun') || '<?= $tahun ?>';
+                    window.location.href = '<?= base_url('tpp_dinamis') ?>?id_opd=<?= $selected_opd ?>&status_asn=<?= $selected_status_asn ?? '' ?>&bulan=' + encodeURIComponent(targetBln) + '&tahun=' + encodeURIComponent(targetThn);
                 });
             } else {
                 Swal.fire({

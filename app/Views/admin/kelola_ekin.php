@@ -148,8 +148,21 @@
             <form id="formUploadModal" enctype="multipart/form-data">
                 <div class="modal-body p-4">
                     <input type="hidden" name="id_opd" value="<?= $selected_opd ?>">
-                    <input type="hidden" name="bulan" value="<?= $bulan ?>">
-                    <input type="hidden" name="tahun" value="<?= $tahun ?>">
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-7">
+                            <label class="form-label small fw-bold text-muted mb-1">Target Periode Bulan</label>
+                            <select name="bulan" class="form-select form-select-sm" required>
+                                <?php foreach ($bln_indo as $num => $nama_bln): ?>
+                                    <option value="<?= $num ?>" <?= ($bulan == $num) ? 'selected' : '' ?>><?= $nama_bln ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-5">
+                            <label class="form-label small fw-bold text-muted mb-1">Target Tahun</label>
+                            <input type="number" name="tahun" class="form-control form-control-sm" value="<?= $tahun ?>" required>
+                        </div>
+                    </div>
 
                     <div class="mb-3">
                         <label class="form-label small fw-bold text-muted">Pilih File Excel (.xlsx / .xls)</label>
@@ -242,16 +255,21 @@
         btn.disabled = true;
         btn.innerText = 'Mengupload...';
 
+        const fd = new FormData(this);
         fetch('<?= base_url('tpp_dinamis/upload_ekin') ?>', {
             method: 'POST',
-            body: new FormData(this)
+            body: fd
         })
         .then(r => r.json())
         .then(res => {
             btn.disabled = false;
             btn.innerText = 'Upload Sekarang';
             if (res.status === 'success') {
-                Swal.fire({icon: 'success', title: 'Berhasil', text: res.message}).then(() => location.reload());
+                Swal.fire({icon: 'success', title: 'Berhasil', text: res.message}).then(() => {
+                    const targetBln = fd.get('bulan') || '<?= $bulan ?>';
+                    const targetThn = fd.get('tahun') || '<?= $tahun ?>';
+                    window.location.href = '<?= base_url('tpp_dinamis/kelola_ekin') ?>?id_opd=<?= $selected_opd ?>&bulan=' + encodeURIComponent(targetBln) + '&tahun=' + encodeURIComponent(targetThn);
+                });
             } else {
                 Swal.fire({icon: 'error', title: 'Gagal', text: res.message});
             }
