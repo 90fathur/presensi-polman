@@ -16,6 +16,41 @@ class TppDinamis extends BaseController
     public function __construct()
     {
         $this->db = \Config\Database::connect();
+        $this->ensure_schema();
+    }
+
+    /**
+     * Pastikan tabel dan kolom yang dibutuhkan oleh prototype TPP Dinamis sudah dibuat
+     */
+    private function ensure_schema()
+    {
+        try {
+            if (!$this->db->fieldExists('tpp_dinamis_aktif', 'opd')) {
+                $this->db->query("ALTER TABLE opd ADD COLUMN tpp_dinamis_aktif TINYINT(1) NOT NULL DEFAULT 0 AFTER nama_opd");
+            }
+            if (!$this->db->tableExists('tpp_ekin_data')) {
+                $this->db->query("CREATE TABLE IF NOT EXISTS `tpp_ekin_data` (
+                    `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                    `id_opd` INT(11) NOT NULL,
+                    `nip` VARCHAR(50) NOT NULL,
+                    `nama_pegawai` VARCHAR(255) NULL,
+                    `bulan` INT(2) NOT NULL,
+                    `tahun` INT(4) NOT NULL,
+                    `wke` VARCHAR(50) NULL,
+                    `predikat_kinerja` VARCHAR(100) NULL,
+                    `persen_kinerja` DECIMAL(5,2) NOT NULL DEFAULT '100.00',
+                    `tpp_bk` DECIMAL(15,2) NOT NULL DEFAULT '0.00',
+                    `tpp_kk` DECIMAL(15,2) NOT NULL DEFAULT '0.00',
+                    `created_at` DATETIME NULL,
+                    `updated_at` DATETIME NULL,
+                    PRIMARY KEY (`id`),
+                    KEY `idx_tpp_opd_periode` (`id_opd`, `bulan`, `tahun`),
+                    KEY `idx_tpp_nip_periode` (`nip`, `bulan`, `tahun`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;");
+            }
+        } catch (\Throwable $e) {
+            log_message('error', 'TppDinamis ensure_schema error: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -309,47 +344,96 @@ class TppDinamis extends BaseController
         $map_ta = [];
         $all_presensi = [];
         $map_izin_full = [];
+        $map_cuti = [];
 
         if (!empty($ids_pegawai)) {
             // Apel / Upacara tidak hadir
-            $unattended_apel = $db->table('apel_peserta')
-                ->select('apel_peserta.id_pegawai, COUNT(*) as ta_count')
-                ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
-                ->whereIn('apel_peserta.id_pegawai', $ids_pegawai)
-                ->where('apel.tanggal >=', $tgl_awal_bulan)
-                ->where('apel.tanggal <=', $endDate)
-                ->groupStart()
-                ->where('apel_peserta.jam_absen', null)
-                ->orWhere('apel_peserta.jam_absen', '')
-                ->groupEnd()
-                ->groupBy('apel_peserta.id_pegawai')
-                ->get()->getResultArray();
-            foreach ($unattended_apel as $ua) {
-                $map_ta[$ua['id_pegawai']] = (int)$ua['ta_count'];
+            if ($db->tableExists('apel_peserta') && $db->tableExists('apel')) {
+                try {
+                    $unattended_apel = $db->table('apel_peserta')
+                        ->select('apel_peserta.id_pegawai, COUNT(*) as ta_count')
+                        ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                        ->whereIn('apel_peserta.id_pegawai', $ids_pegawai)
+                        ->where('apel.tanggal >=', $tgl_awal_bulan)
+                        ->where('apel.tanggal <=', $endDate)
+                        ->groupStart()
+                        ->where('apel_peserta.jam_absen', null)
+                        ->orWhere('apel_peserta.jam_absen', '')
+                        ->groupEnd()
+                        ->groupBy('apel_peserta.id_pegawai')
+                        ->get()->getResultArray();
+                    foreach ($unattended_apel as $ua) {
+                        $map_ta[$ua['id_pegawai']] = (int)$ua['ta_count'];
+                    }
+                } catch (\Throwable $e) {
+                    log_message('error', 'Apel check error: ' . $e->getMessage());
+                }
             }
 
             // Presensi raw
-            $logs_raw = $db->table('presensi')
-                ->whereIn('nip', $nips_pegawai)
-                ->where('MONTH(tanggal)', $bulan)
-                ->where('YEAR(tanggal)', $tahun)
-                ->get()->getResultArray();
-            foreach ($logs_raw as $l) {
-                $all_presensi[$l['nip']][$l['tanggal']] = $l;
+            if ($db->tableExists('presensi') && !empty($nips_pegawai)) {
+                try {
+                    $logs_raw = $db->table('presensi')
+                        ->whereIn('nip', $nips_pegawai)
+                        ->where('MONTH(tanggal)', $bulan)
+                        ->where('YEAR(tanggal)', $tahun)
+                        ->get()->getResultArray();
+                    foreach ($logs_raw as $l) {
+                        $all_presensi[$l['nip']][$l['tanggal']] = $l;
+                    }
+                } catch (\Throwable $e) {
+                    log_message('error', 'Presensi query error: ' . $e->getMessage());
+                }
             }
 
-            // Pengajuan izin approved
-            $izin_full_raw = $db->table('pengajuan_izin')
-                ->whereIn('nip', $nips_pegawai)
-                ->where('LOWER(TRIM(status))', 'disetujui')
-                ->where('tgl_izin >=', $tgl_awal_bulan)
-                ->where('tgl_izin <=', $tgl_akhir_bulan)
-                ->get()->getResultArray();
-            foreach ($izin_full_raw as $iz) {
-                $kategori_upper = strtoupper(trim($iz['kategori'] ?? 'IZIN'));
-                $sub_kategori_upper = strtoupper(trim($iz['sub_kategori'] ?? ''));
-                if (strpos($kategori_upper, 'SETENGAH') === false && strpos($sub_kategori_upper, 'SETENGAH') === false) {
-                    $map_izin_full[$iz['nip']][$iz['tgl_izin']] = $kategori_upper;
+            // Pengajuan Cuti (tabel: pengajuan_cuti)
+            if ($db->tableExists('pengajuan_cuti')) {
+                try {
+                    $cuti_raw = $db->table('pengajuan_cuti')
+                        ->where("LOWER(TRIM(status))", 'disetujui')
+                        ->where("tgl_mulai <=", $tgl_akhir_bulan)
+                        ->where("COALESCE(NULLIF(tgl_selesai, ''), tgl_mulai) >=", $tgl_awal_bulan)
+                        ->get()->getResultArray();
+                    foreach ($cuti_raw as $c) {
+                        $tgl_selesai_val = empty($c['tgl_selesai']) ? $c['tgl_mulai'] : $c['tgl_selesai'];
+                        $start = new \DateTime(max($c['tgl_mulai'], $tgl_awal_bulan));
+                        $end = new \DateTime(min($tgl_selesai_val, $endDate));
+                        $end->modify('+1 day');
+                        foreach (new \DatePeriod($start, new \DateInterval('P1D'), $end) as $date) {
+                            if ($date->format('m') == sprintf('%02d', $bulan) && $date->format('Y') == $tahun) {
+                                $map_cuti[$c['pegawai_id']][] = $date->format('Y-m-d');
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    log_message('error', 'Cuti query error: ' . $e->getMessage());
+                }
+            }
+
+            // Pengajuan izin / sakit / tugas luar approved (tabel: pengajuan_absen)
+            if ($db->tableExists('pengajuan_absen') && !empty($nips_pegawai)) {
+                try {
+                    $izin_raw = $db->table('pengajuan_absen')
+                        ->whereIn('nip', $nips_pegawai)
+                        ->where("LOWER(TRIM(status_approval))", 'disetujui')
+                        ->where("tanggal_mulai <= LAST_DAY('$tahun-$bulan-01') AND COALESCE(NULLIF(tanggal_selesai, ''), tanggal_mulai) >= '$tahun-$bulan-01'")
+                        ->get()->getResultArray();
+
+                    foreach ($izin_raw as $iz) {
+                        $start_i = new \DateTime(max($iz['tanggal_mulai'], $tgl_awal_bulan));
+                        $tgl_selesai_val = empty($iz['tanggal_selesai']) ? $iz['tanggal_mulai'] : $iz['tanggal_selesai'];
+                        $end_i   = new \DateTime(min($tgl_selesai_val, $tgl_akhir_bulan));
+                        $end_i->modify('+1 day');
+
+                        foreach (new \DatePeriod($start_i, new \DateInterval('P1D'), $end_i) as $dt) {
+                            $slot = strtoupper(trim($iz['slot_waktu'] ?? 'PENUH'));
+                            if ($slot == 'PENUH' || $slot == '') {
+                                $map_izin_full[$iz['nip']][$dt->format('Y-m-d')] = strtoupper($iz['kategori'] ?? 'IZIN');
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    log_message('error', 'Pengajuan absen query error: ' . $e->getMessage());
                 }
             }
         }
@@ -386,11 +470,18 @@ class TppDinamis extends BaseController
 
                 $res['hari_kerja']++;
 
+                // Cek Cuti
+                if (isset($map_cuti[$pgw['id_pegawai']]) && in_array($tgl_loop, $map_cuti[$pgw['id_pegawai']])) {
+                    $res['c']++;
+                    continue;
+                }
+
                 if (isset($map_izin_full[$nip][$tgl_loop])) {
                     $kategori_izin = $map_izin_full[$nip][$tgl_loop];
                     if (strpos($kategori_izin, 'IZIN') !== false) $res['i']++;
                     elseif (strpos($kategori_izin, 'SAKIT') !== false) $res['s']++;
-                    elseif (strpos($kategori_izin, 'LUAR') !== false) $res['dl']++;
+                    elseif (strpos($kategori_izin, 'LUAR') !== false || strpos($kategori_izin, 'DINAS') !== false || strpos($kategori_izin, 'TUGAS') !== false) $res['dl']++;
+                    else $res['i']++;
                     continue;
                 }
 
