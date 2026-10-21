@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "902743044228",
+    "project_id": "presensi-polman",
+    "storage_bucket": "presensi-polman.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:902743044228:android:27ed8772f370aba70b12d1",
+        "android_client_info": {
+          "package_name": "com.mandarlink.presensi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDwkJu8QfRDJ4ocBNfmnb9PK8O8rizlMLg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:902743044228:android:4ad1aab5ee73f3950b12d1",
+        "android_client_info": {
+          "package_name": "id.go.polmankab.presensi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDwkJu8QfRDJ4ocBNfmnb9PK8O8rizlMLg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

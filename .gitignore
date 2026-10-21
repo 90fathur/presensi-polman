@@ -1,0 +1,43 @@
+# CodeIgniter 4
+/vendor/
+/writable/*
+!/writable/.gitkeep
+/public/uploads/*
+!/public/uploads/.gitkeep
+.env
+phpunit.xml
+
+# Sensitive credentials & keys
+.vscode/sftp.json
+*.keystore
+*.jks
+firebase-service-account.json
+
+# Large Archives, APK, AAB
+*.zip
+*.apk
+*.aab
+*.tar
+*.gz
+
+# Android Studio / Gradle Cache
+AndroidSource/.gradle/
+AndroidSource/.idea/
+AndroidSource/**/build/
+AndroidSource/**/release/
+AndroidSource/local.properties
+AndroidSource/.cxx/
+.gradle/
+.idea/
+build/
+local.properties
+
+# OS & Temp Files
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+~$*
+.vscode/
+*copy*.php
+* copy *.php
