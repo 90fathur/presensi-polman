@@ -186,10 +186,20 @@ $is_rsud_depu_admin = (in_array(session()->get('level'), ['Superadmin', 'kabupat
                 </a>
 
                 <!-- MENU BARU: REKAP TPP DINAMIS BK & KK (PROTOTYPE 40% - 60%) -->
-                <a class="nav-link text-white py-1 small <?= ($segment == 'tpp_dinamis') ? 'active-sub' : 'opacity-50' ?>" href="<?= base_url('tpp_dinamis') ?>">
+                <a class="nav-link text-white py-1 small <?= ($segment == 'tpp_dinamis' && empty($sub_segment)) ? 'active-sub' : 'opacity-50' ?>" href="<?= base_url('tpp_dinamis') ?>">
                     <i class="fas fa-coins me-2 text-warning"></i> <b>Rekap TPP (BK & KK)</b>
                     <span class="badge bg-warning text-dark ms-1" style="font-size: 0.55rem;">BARU</span>
                 </a>
+
+                <a class="nav-link text-white py-1 small <?= ($segment == 'tpp_dinamis' && $sub_segment == 'kelola_ekin') ? 'active-sub' : 'opacity-50' ?>" href="<?= base_url('tpp_dinamis/kelola_ekin') ?>">
+                    <i class="fas fa-file-upload me-2 text-info"></i> Upload / Kelola E-Kinerja
+                </a>
+
+                <?php if (in_array(session()->get('level'), ['Superadmin', 'kabupaten'])): ?>
+                <a class="nav-link text-white py-1 small <?= ($segment == 'tpp_dinamis' && $sub_segment == 'setting_opd') ? 'active-sub' : 'opacity-50' ?>" href="<?= base_url('tpp_dinamis/setting_opd') ?>">
+                    <i class="fas fa-sliders-h me-2 text-secondary"></i> Setting OPD Prototype
+                </a>
+                <?php endif; ?>
 
             </div>
         </div>
