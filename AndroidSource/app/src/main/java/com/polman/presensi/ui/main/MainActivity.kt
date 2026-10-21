@@ -312,6 +312,47 @@ class MainActivity : AppCompatActivity() {
                             findViewById<TextView>(resources.getIdentifier("tvJadwalMasuk", "id", packageName)).text = jamMasuk
                             findViewById<TextView>(resources.getIdentifier("tvJadwalPulang", "id", packageName)).text = jamPulang
                         }
+
+                        // Parse Prototype Estimasi TPP Dinamis (Beban Kerja 60% & Disiplin 40%)
+                        val cardTpp = findViewById<androidx.cardview.widget.CardView>(resources.getIdentifier("cardTpp", "id", packageName))
+                        val tvTppLabelBulan = findViewById<TextView>(resources.getIdentifier("tvTppLabelBulan", "id", packageName))
+                        val tvTppNominal = findViewById<TextView>(resources.getIdentifier("tvTppNominal", "id", packageName))
+                        val tvTppSubtext = findViewById<TextView>(resources.getIdentifier("tvTppSubtext", "id", packageName))
+                        val btnRincianTpp = findViewById<TextView>(resources.getIdentifier("btnRincianTpp", "id", packageName))
+
+                        val tppInfo = body["tpp_info"] as? Map<String, Any>
+                        val isTppAktif = tppInfo?.get("is_aktif") as? Boolean ?: (tppInfo?.get("is_aktif")?.toString() == "true")
+
+                        if (cardTpp != null) {
+                            if (isTppAktif && tppInfo != null) {
+                                cardTpp.visibility = View.VISIBLE
+                                
+                                val namaBulan = tppInfo["nama_bulan"]?.toString() ?: "Bulan Ini"
+                                val tahunTpp = tppInfo["tahun"]?.toString() ?: ""
+                                if (tvTppLabelBulan != null) {
+                                    tvTppLabelBulan.text = "💰 Estimasi TPP ($namaBulan $tahunTpp)"
+                                }
+                                
+                                val tppBersihFormat = tppInfo["tpp_bersih_format"]?.toString() ?: "Rp 0"
+                                if (tvTppNominal != null) {
+                                    tvTppNominal.text = tppBersihFormat
+                                }
+                                
+                                val predikat = tppInfo["predikat_kinerja"]?.toString() ?: "Baik"
+                                val potPersen = tppInfo["persen_pot_disiplin"]?.toString() ?: "0"
+                                if (tvTppSubtext != null) {
+                                    tvTppSubtext.text = "Kin: $predikat • Pot. Disiplin: $potPersen%"
+                                }
+
+                                if (btnRincianTpp != null) {
+                                    btnRincianTpp.setOnClickListener {
+                                        showDialogRincianTpp(tppInfo)
+                                    }
+                                }
+                            } else {
+                                cardTpp.visibility = View.GONE
+                            }
+                        }
                         
                         // Parse Alerts
                         val tvAlertPengajuan = findViewById<TextView>(resources.getIdentifier("tvAlertPengajuan", "id", packageName))
@@ -759,6 +800,76 @@ class MainActivity : AppCompatActivity() {
                 device_info = deviceInfo,
                 nip = nip
             ).enqueue(callback)
+        }
+    }
+
+    private fun showDialogRincianTpp(tppInfo: Map<String, Any>) {
+        try {
+            val dialogView = layoutInflater.inflate(resources.getIdentifier("dialog_rincian_tpp", "layout", packageName), null)
+            val dialog = android.app.AlertDialog.Builder(this)
+                .setView(dialogView)
+                .create()
+
+            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+
+            val tvModalPeriode = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalPeriode", "id", packageName))
+            val btnModalClose = dialogView.findViewById<TextView>(resources.getIdentifier("btnModalClose", "id", packageName))
+            val btnModalTutupBawah = dialogView.findViewById<TextView>(resources.getIdentifier("btnModalTutupBawah", "id", packageName))
+
+            val tvModalPaguBk = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalPaguBk", "id", packageName))
+            val tvModalPaguKk = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalPaguKk", "id", packageName))
+            val tvModalTotalPagu = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalTotalPagu", "id", packageName))
+            val tvModalBpjs = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalBpjs", "id", packageName))
+            val tvModalPaguNetto = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalPaguNetto", "id", packageName))
+
+            val tvModalTarget60 = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalTarget60", "id", packageName))
+            val tvModalPredikat = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalPredikat", "id", packageName))
+            val tvModalHasilKinerja = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalHasilKinerja", "id", packageName))
+
+            val tvModalTarget40 = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalTarget40", "id", packageName))
+            val tvModalPotonganPersen = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalPotonganPersen", "id", packageName))
+            val tvModalNominalPotDisiplin = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalNominalPotDisiplin", "id", packageName))
+            val tvModalHasilDisiplin = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalHasilDisiplin", "id", packageName))
+
+            val tvModalTppKotor = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalTppKotor", "id", packageName))
+            val tvModalTarifPphLabel = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalTarifPphLabel", "id", packageName))
+            val tvModalNominalPph = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalNominalPph", "id", packageName))
+            val tvModalTppBersih = dialogView.findViewById<TextView>(resources.getIdentifier("tvModalTppBersih", "id", packageName))
+
+            val namaBulan = tppInfo["nama_bulan"]?.toString() ?: ""
+            val tahunTpp = tppInfo["tahun"]?.toString() ?: ""
+            tvModalPeriode?.text = "Periode: $namaBulan $tahunTpp"
+
+            tvModalPaguBk?.text = tppInfo["tpp_bk_format"]?.toString() ?: "Rp 0"
+            tvModalPaguKk?.text = tppInfo["tpp_kk_format"]?.toString() ?: "Rp 0"
+            tvModalTotalPagu?.text = tppInfo["jumlah_pagu_format"]?.toString() ?: "Rp 0"
+            tvModalBpjs?.text = "- " + (tppInfo["bpjs_1pct_format"]?.toString() ?: "Rp 0")
+            tvModalPaguNetto?.text = tppInfo["tpp_stlh_bpjs_format"]?.toString() ?: "Rp 0"
+
+            tvModalTarget60?.text = tppInfo["tpp_60_target_format"]?.toString() ?: "Rp 0"
+            val predikat = tppInfo["predikat_kinerja"]?.toString() ?: "Baik"
+            val persenKin = tppInfo["persen_kinerja"]?.toString() ?: "100"
+            tvModalPredikat?.text = "$predikat ($persenKin%)"
+            tvModalHasilKinerja?.text = tppInfo["jumlah_kinerja_format"]?.toString() ?: "Rp 0"
+
+            tvModalTarget40?.text = tppInfo["tpp_40_target_format"]?.toString() ?: "Rp 0"
+            val potPersen = tppInfo["persen_pot_disiplin"]?.toString() ?: "0"
+            tvModalPotonganPersen?.text = "-$potPersen%"
+            tvModalNominalPotDisiplin?.text = "- " + (tppInfo["nominal_pot_disiplin_format"]?.toString() ?: "Rp 0")
+            tvModalHasilDisiplin?.text = tppInfo["jumlah_disiplin_format"]?.toString() ?: "Rp 0"
+
+            tvModalTppKotor?.text = tppInfo["tpp_kotor_format"]?.toString() ?: "Rp 0"
+            val tarifPphPersen = tppInfo["tarif_pph_persen"]?.toString() ?: "0%"
+            tvModalTarifPphLabel?.text = "PPh 21 ($tarifPphPersen)"
+            tvModalNominalPph?.text = "- " + (tppInfo["nominal_pph21_format"]?.toString() ?: "Rp 0")
+            tvModalTppBersih?.text = tppInfo["tpp_bersih_format"]?.toString() ?: "Rp 0"
+
+            btnModalClose?.setOnClickListener { dialog.dismiss() }
+            btnModalTutupBawah?.setOnClickListener { dialog.dismiss() }
+
+            dialog.show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Gagal menampilkan rincian: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 }

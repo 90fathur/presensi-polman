@@ -495,6 +495,14 @@ class Pwa extends BaseController
             }
         }
 
+        // Hitung estimasi TPP Dinamis (Beban Kerja 60% & Disiplin 40%) jika OPD mengaktifkan prototype
+        $tpp_info = null;
+        try {
+            $tpp_info = \App\Controllers\TppDinamis::get_tpp_pegawai($id_pegawai, $filter_bulan, $filter_tahun);
+        } catch (\Throwable $t) {
+            log_message('error', 'PWA Dashboard TPP error: ' . $t->getMessage());
+        }
+
         return view('pwa/index', [
             'pegawai'         => $pegawai,
             'jadwal_hari_ini' => $jadwal_hari_ini,
@@ -511,7 +519,8 @@ class Pwa extends BaseController
             'cito_aktif'      => $cito_aktif,
             'is_hari_ini_cito' => $is_hari_ini_cito,
             'bebas_radius'    => $bebas_radius,
-            'multi_lokasi'    => $multi_lokasi
+            'multi_lokasi'    => $multi_lokasi,
+            'tpp_info'        => $tpp_info
         ]);
     }
 

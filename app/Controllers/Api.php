@@ -516,6 +516,14 @@ class Api extends ResourceController
             }
         }
 
+        // Hitung estimasi TPP Dinamis (Beban Kerja 60% & Disiplin 40%) jika OPD mengaktifkan prototype
+        $tpp_info = null;
+        try {
+            $tpp_info = \App\Controllers\TppDinamis::get_tpp_pegawai($id_pegawai, $filter_bulan, $filter_tahun);
+        } catch (\Throwable $t) {
+            log_message('error', 'API Dashboard TPP calculation error: ' . $t->getMessage());
+        }
+
         $response_data = [
             'status'          => 'success',
             'pegawai'         => $pegawai,
@@ -533,10 +541,33 @@ class Api extends ResourceController
             'is_hari_ini_cito' => $is_hari_ini_cito,
             'bebas_radius'    => $bebas_radius,
             'multi_lokasi'    => $multi_lokasi,
-            'is_bercadar'     => $pegawai['is_bercadar'] ?? 0
+            'is_bercadar'     => $pegawai['is_bercadar'] ?? 0,
+            'tpp_info'        => $tpp_info
         ];
 
         return $this->response->setJSON($response_data);
+    }
+
+    /**
+     * ENDPOINT: /api/tpp_detail
+     * METHOD: GET / POST
+     * Detail Rincian TPP Dinamis Pegawai
+     */
+    public function tpp_detail()
+    {
+        $id_pegawai = session()->get('id_pegawai');
+        if (!$id_pegawai || !session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON(['status' => 'error', 'message' => 'Sesi berakhir atau belum login.']);
+        }
+
+        $bulan = (int)($this->request->getGet('bulan') ?? ($this->request->getPost('bulan') ?? date('m')));
+        $tahun = (int)($this->request->getGet('tahun') ?? ($this->request->getPost('tahun') ?? date('Y')));
+
+        $tpp = \App\Controllers\TppDinamis::get_tpp_pegawai($id_pegawai, $bulan, $tahun);
+        return $this->response->setJSON([
+            'status' => 'success',
+            'data'   => $tpp
+        ]);
     }
 
     /**

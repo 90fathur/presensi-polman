@@ -102,7 +102,7 @@ class TppDinamis extends BaseController
      * Golongan III: 5% (0.05)
      * Golongan II / I / Lainnya: 0%
      */
-    private function get_tarif_pph($golongan)
+    public static function get_tarif_pph($golongan)
     {
         $gol = strtoupper(trim((string)$golongan));
         if (preg_match('/(^|\b|\/)(IV)(\b|[a-e]|\/)/i', $gol) || strpos($gol, 'IV') !== false) {
@@ -111,6 +111,251 @@ class TppDinamis extends BaseController
             return 0.05;
         }
         return 0.00;
+    }
+
+    /**
+     * Hitung Rekap TPP Dinamis untuk 1 Orang Pegawai (Digunakan oleh Mobile App APK / PWA)
+     * Hanya aktif jika OPD pegawai tersebut mengaktifkan fitur prototype (tpp_dinamis_aktif = 1).
+     */
+    public static function get_tpp_pegawai($id_pegawai, $bulan = null, $tahun = null)
+    {
+        $db = \Config\Database::connect();
+        $bulan = (int)($bulan ?: date('m'));
+        $tahun = (int)($tahun ?: date('Y'));
+
+        // 1. Ambil data pegawai beserta info OPD
+        $pegawai = $db->table('pegawai p')
+            ->select('p.id_pegawai, p.nip, p.nama_lengkap, p.pangkat, p.golongan, p.jabatan, p.id_opd,
+                      o.nama_opd, o.tpp_dinamis_aktif, o.id_jam_kerja as id_jam_opd')
+            ->join('opd o', 'p.id_opd = o.id_opd', 'left')
+            ->where('p.id_pegawai', $id_pegawai)
+            ->get()->getRowArray();
+
+        if (!$pegawai) {
+            return [
+                'is_aktif' => false,
+                'message'  => 'Pegawai tidak ditemukan.'
+            ];
+        }
+
+        // Cek apakah OPD mengaktifkan prototype TPP dinamis
+        if (empty($pegawai['tpp_dinamis_aktif'])) {
+            return [
+                'is_aktif' => false,
+                'message'  => 'Fitur Prototype TPP Dinamis belum diaktifkan untuk OPD Anda.'
+            ];
+        }
+
+        $nip = preg_replace('/[^0-9]/', '', (string)$pegawai['nip']);
+
+        // 2. Ambil data Pagu & E-Kinerja Pegawai
+        $pagu = null;
+        if ($db->tableExists('tpp_pagu')) {
+            $pagu = $db->table('tpp_pagu')->where('nip', $nip)->get()->getRowArray();
+        }
+
+        $ekin = null;
+        if ($db->tableExists('tpp_ekin_data')) {
+            $ekin = $db->table('tpp_ekin_data')
+                ->where('nip', $nip)
+                ->where('bulan', $bulan)
+                ->where('tahun', $tahun)
+                ->get()->getRowArray();
+        }
+
+        $tpp_bk = (isset($ekin['tpp_bk']) && (float)$ekin['tpp_bk'] > 0) ? (float)$ekin['tpp_bk'] : ((float)($pagu['tpp_bk'] ?? 0));
+        $tpp_kk = (isset($ekin['tpp_kk']) && (float)$ekin['tpp_kk'] > 0) ? (float)$ekin['tpp_kk'] : ((float)($pagu['tpp_kk'] ?? 0));
+        $wke = $ekin['wke'] ?? '0';
+        $predikat = $ekin['predikat_kinerja'] ?? 'BAIK';
+        $persen_kinerja = isset($ekin['persen_kinerja']) ? (float)$ekin['persen_kinerja'] : 100.00;
+        if ($persen_kinerja <= 0 && in_array(strtoupper($predikat), ['BAIK', 'SANGAT BAIK', ''])) {
+            $persen_kinerja = 100.00;
+        }
+
+        // 3. Hitung Kedisiplinan Kehadiran Presensi Bulan Ini
+        $tgl_awal = sprintf('%04d-%02d-01', $tahun, $bulan);
+        $tgl_akhir = date('Y-m-t', strtotime($tgl_awal));
+        $hari_ini = date('Y-m-d');
+        $end_loop = (date('m') == $bulan && date('Y') == $tahun) ? $hari_ini : $tgl_akhir;
+
+        // Hari libur
+        $liburRows = $db->table('hari_libur')->where('tanggal >=', $tgl_awal)->where('tanggal <=', $tgl_akhir)->get()->getResultArray();
+        $liburDates = array_column($liburRows, 'tanggal');
+
+        // Presensi logs
+        $presensiRows = $db->table('presensi')
+            ->where('id_pegawai', $id_pegawai)
+            ->where('tanggal >=', $tgl_awal)
+            ->where('tanggal <=', $tgl_akhir)
+            ->get()->getResultArray();
+        $presensiMap = [];
+        foreach ($presensiRows as $pr) {
+            $presensiMap[$pr['tanggal']] = $pr;
+        }
+
+        // Pengajuan Izin/Sakit/Cuti
+        $izinRows = $db->table('pengajuan_absen')
+            ->where('nip', $pegawai['nip'])
+            ->where('status_approval', 'Disetujui')
+            ->where('tanggal_mulai <=', $tgl_akhir)
+            ->where('tanggal_selesai >=', $tgl_awal)
+            ->get()->getResultArray();
+
+        $izinDates = [];
+        foreach ($izinRows as $iz) {
+            $cur = strtotime(max($tgl_awal, $iz['tanggal_mulai']));
+            $maxTgl = strtotime(min($tgl_akhir, $iz['tanggal_selesai']));
+            while ($cur <= $maxTgl) {
+                $izinDates[date('Y-m-d', $cur)] = $iz['kategori'];
+                $cur = strtotime('+1 day', $cur);
+            }
+        }
+
+        // Hitung akumulasi disiplin
+        $p1 = 0; $p2 = 0; $p3 = 0; $p4 = 0;
+        $pc1 = 0; $pc2 = 0; $pc3 = 0; $pc4 = 0;
+        $alpa = 0; $tdk = 0; $ta = 0; $hadir = 0; $hari_kerja = 0;
+
+        $curTime = strtotime($tgl_awal);
+        $endTime = strtotime($end_loop);
+
+        while ($curTime <= $endTime) {
+            $tglStr = date('Y-m-d', $curTime);
+            $dayOfWeek = date('N', $curTime); // 1 = Senin, 7 = Minggu
+
+            // Lewati hari Sabtu (6) dan Minggu (7) serta hari libur
+            if ($dayOfWeek <= 5 && !in_array($tglStr, $liburDates)) {
+                $hari_kerja++;
+
+                if (isset($izinDates[$tglStr])) {
+                    // Izin/Sakit/Cuti resmi tidak kena potongan
+                } elseif (isset($presensiMap[$tglStr])) {
+                    $l = $presensiMap[$tglStr];
+                    $hadir++;
+                    $kat = strtolower(trim((string)($l['kategori'] ?? '')));
+
+                    if ($kat === 'alpa' || ($l['status_verifikasi'] ?? '') === 'Dianulir') {
+                        $alpa++;
+                    } else {
+                        // Keterlambatan P1 s.d P4
+                        if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
+                            $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';
+                            if ($l['jam_masuk_aktual'] > $jam_seharusnya) {
+                                $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
+                                $menit = floor($selisih / 60);
+                                if ($menit >= 1 && $menit <= 30) $p1++;
+                                elseif ($menit >= 31 && $menit <= 60) $p2++;
+                                elseif ($menit >= 61 && $menit <= 90) $p3++;
+                                elseif ($menit > 90) $p4++;
+                            }
+                        }
+
+                        // Pulang Cepat Pc1 s.d Pc4
+                        if (!empty($l['jam_pulang_seharusnya']) && !empty($l['jam_pulang_aktual']) && $l['jam_pulang_aktual'] < $l['jam_pulang_seharusnya']) {
+                            $selisih = strtotime($l['jam_pulang_seharusnya']) - strtotime($l['jam_pulang_aktual']);
+                            $menit_pc = floor($selisih / 60);
+                            if ($menit_pc >= 1 && $menit_pc <= 30) $pc1++;
+                            elseif ($menit_pc >= 31 && $menit_pc <= 60) $pc2++;
+                            elseif ($menit_pc >= 61 && $menit_pc <= 90) $pc3++;
+                            elseif ($menit_pc > 90) $pc4++;
+                        }
+                    }
+                } else {
+                    if ($tglStr < $hari_ini) {
+                        $alpa++;
+                        if ($dayOfWeek == 1) $tdk++; // Apel Senin
+                    }
+                }
+            }
+            $curTime = strtotime('+1 day', $curTime);
+        }
+
+        $persen_pot_disiplin = ($p1 * 0.5) + ($p2 * 1.0) + ($p3 * 1.25) + ($p4 * 1.5) +
+                               ($pc1 * 0.5) + ($pc2 * 1.0) + ($pc3 * 1.25) + ($pc4 * 1.5) +
+                               ($alpa * 3.0) + ($tdk * 0.5) + ($ta * 2.0);
+
+        // 4. Perhitungan TPP Dinamis (Beban Kerja 60% & Disiplin 40%)
+        $jumlah_pagu = $tpp_bk + $tpp_kk;
+        $bpjs_1pct = $jumlah_pagu * 0.01;
+        $tpp_stlh_bpjs = $jumlah_pagu - $bpjs_1pct;
+
+        // Kinerja 60%
+        $tpp_60_target = $tpp_stlh_bpjs * 0.60;
+        $faktor_kinerja = ($persen_kinerja > 1.0) ? ($persen_kinerja / 100.0) : $persen_kinerja;
+        $jumlah_kinerja = $tpp_60_target * $faktor_kinerja;
+
+        // Disiplin 40%
+        $tpp_40_target = $tpp_stlh_bpjs * 0.40;
+        $nominal_pot_disiplin = $tpp_40_target * ($persen_pot_disiplin / 100.0);
+        $jumlah_disiplin = max(0, $tpp_40_target - $nominal_pot_disiplin);
+
+        // Total Kotor
+        $tpp_kotor = $jumlah_kinerja + $jumlah_disiplin;
+
+        // PPh 21
+        $tarif_pph = self::get_tarif_pph($pegawai['golongan'] ?? $pegawai['pangkat'] ?? '');
+        $nominal_pph21 = $tpp_kotor * $tarif_pph;
+
+        // Total Bersih
+        $tpp_bersih = $tpp_kotor - $nominal_pph21;
+
+        $bulanNames = [
+            1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
+            5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
+            9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'
+        ];
+
+        return [
+            'is_aktif'              => true,
+            'bulan'                 => $bulan,
+            'tahun'                 => $tahun,
+            'nama_bulan'            => $bulanNames[$bulan] ?? "Bulan $bulan",
+            'label_periode'         => ($bulanNames[$bulan] ?? "Bulan $bulan") . " $tahun",
+            // Nominal Utama (Hasil Akhir Bersih)
+            'tpp_bersih'            => round($tpp_bersih),
+            'tpp_bersih_format'     => 'Rp ' . number_format($tpp_bersih, 0, ',', '.'),
+            'tpp_kotor'             => round($tpp_kotor),
+            'tpp_kotor_format'      => 'Rp ' . number_format($tpp_kotor, 0, ',', '.'),
+            // Pagu Dasar
+            'tpp_bk'                => round($tpp_bk),
+            'tpp_bk_format'         => 'Rp ' . number_format($tpp_bk, 0, ',', '.'),
+            'tpp_kk'                => round($tpp_kk),
+            'tpp_kk_format'         => 'Rp ' . number_format($tpp_kk, 0, ',', '.'),
+            'jumlah_pagu'           => round($jumlah_pagu),
+            'jumlah_pagu_format'    => 'Rp ' . number_format($jumlah_pagu, 0, ',', '.'),
+            'bpjs_1pct'             => round($bpjs_1pct),
+            'bpjs_1pct_format'      => 'Rp ' . number_format($bpjs_1pct, 0, ',', '.'),
+            'tpp_stlh_bpjs'         => round($tpp_stlh_bpjs),
+            'tpp_stlh_bpjs_format'  => 'Rp ' . number_format($tpp_stlh_bpjs, 0, ',', '.'),
+            // Komponen Kinerja 60%
+            'tpp_60_target'         => round($tpp_60_target),
+            'tpp_60_target_format'  => 'Rp ' . number_format($tpp_60_target, 0, ',', '.'),
+            'persen_kinerja'        => $persen_kinerja,
+            'predikat_kinerja'      => $predikat,
+            'jumlah_kinerja'        => round($jumlah_kinerja),
+            'jumlah_kinerja_format' => 'Rp ' . number_format($jumlah_kinerja, 0, ',', '.'),
+            // Komponen Disiplin 40%
+            'tpp_40_target'         => round($tpp_40_target),
+            'tpp_40_target_format'  => 'Rp ' . number_format($tpp_40_target, 0, ',', '.'),
+            'persen_pot_disiplin'   => round($persen_pot_disiplin, 2),
+            'nominal_pot_disiplin'  => round($nominal_pot_disiplin),
+            'nominal_pot_disiplin_format' => 'Rp ' . number_format($nominal_pot_disiplin, 0, ',', '.'),
+            'jumlah_disiplin'       => round($jumlah_disiplin),
+            'jumlah_disiplin_format'=> 'Rp ' . number_format($jumlah_disiplin, 0, ',', '.'),
+            // Pajak PPh 21
+            'tarif_pph'             => $tarif_pph,
+            'tarif_pph_persen'      => ($tarif_pph * 100) . '%',
+            'nominal_pph21'         => round($nominal_pph21),
+            'nominal_pph21_format'  => 'Rp ' . number_format($nominal_pph21, 0, ',', '.'),
+            'wke'                   => $wke,
+            'pot_detail'            => [
+                'hari_kerja' => $hari_kerja,
+                'hadir'      => $hadir,
+                'p1' => $p1, 'p2' => $p2, 'p3' => $p3, 'p4' => $p4,
+                'pc1' => $pc1, 'pc2' => $pc2, 'pc3' => $pc3, 'pc4' => $pc4,
+                'alpa' => $alpa, 'tdk' => $tdk, 'ta' => $ta
+            ]
+        ];
     }
 
     /**

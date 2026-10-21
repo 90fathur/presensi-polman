@@ -983,6 +983,33 @@ $hp_kosong = empty($pegawai['nomor_hp']);
             </button>
         </div>
 
+        <?php if (!empty($tpp_info) && !empty($tpp_info['is_aktif'])): ?>
+            <!-- KARTU PROTOTYPE TPP DINAMIS -->
+            <div class="card border-0 shadow-sm rounded-4 mt-3 p-3 bg-white">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="fw-bold text-dark" style="font-size: 0.85rem;">
+                        <i class="fas fa-coins text-warning me-1"></i> Estimasi TPP <?= esc($tpp_info['nama_bulan'] ?? '') ?>
+                    </span>
+                    <span class="badge bg-warning-subtle text-warning border border-warning-subtle rounded-pill fw-bold" style="font-size: 0.65rem;">
+                        PROTOTYPE
+                    </span>
+                </div>
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="fw-bolder text-success font-num" style="font-size: 1.25rem;">
+                            <?= esc($tpp_info['tpp_bersih_format'] ?? 'Rp 0') ?>
+                        </div>
+                        <div class="text-muted" style="font-size: 0.68rem;">
+                            Kin: <b><?= esc($tpp_info['predikat_kinerja'] ?? 'Baik') ?></b> &bull; Pot. Disiplin: <b><?= esc($tpp_info['persen_pot_disiplin'] ?? '0') ?>%</b>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-primary rounded-pill fw-bold px-3 shadow-sm" data-bs-toggle="modal" data-bs-target="#modalRincianTpp" style="font-size: 0.75rem;">
+                        <i class="fas fa-info-circle me-1"></i> Rincian
+                    </button>
+                </div>
+            </div>
+        <?php endif; ?>
+
         <?php if ($terakhir && isset($terakhir['status_verifikasi']) && $terakhir['status_verifikasi'] == 'Ditangguhkan'): ?>
             <div class="hub-card mt-3 text-center py-5" style="border: 2px solid #EF4444; background: #FEF2F2;">
                 <i class="fas fa-exclamation-triangle text-danger mb-3" style="font-size: 4rem;"></i>
@@ -2295,6 +2322,121 @@ $hp_kosong = empty($pegawai['nomor_hp']);
             touchMove = 0;
         });
     </script>
+
+    <?php if (!empty($tpp_info) && !empty($tpp_info['is_aktif'])): ?>
+        <!-- MODAL RINCIAN TPP DINAMIS -->
+        <div class="modal fade" id="modalRincianTpp" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content rounded-4 border-0 shadow">
+                    <div class="modal-header border-bottom py-3 px-4">
+                        <div>
+                            <div class="d-flex align-items-center gap-2">
+                                <h6 class="modal-title fw-bold text-dark mb-0">Rincian TPP Dinamis</h6>
+                                <span class="badge bg-warning-subtle text-warning border border-warning-subtle rounded-pill" style="font-size: 0.65rem;">PROTOTYPE</span>
+                            </div>
+                            <small class="text-muted" style="font-size: 0.72rem;">Periode: <?= esc($tpp_info['label_periode'] ?? '') ?></small>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body p-4" style="font-size: 0.8rem;">
+                        <!-- 1. Pagu Dasar & BPJS -->
+                        <div class="text-primary fw-bold mb-1" style="font-size: 0.72rem;">1. PAGU DASAR &amp; IURAN BPJS 1%</div>
+                        <div class="bg-light p-3 rounded-3 mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Pagu Beban Kerja (BK)</span>
+                                <span class="fw-bold text-dark font-num"><?= esc($tpp_info['tpp_bk_format'] ?? 'Rp 0') ?></span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Pagu Kondisi Kerja (KK)</span>
+                                <span class="fw-bold text-dark font-num"><?= esc($tpp_info['tpp_kk_format'] ?? 'Rp 0') ?></span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="fw-bold text-dark">Total Pagu</span>
+                                <span class="fw-bold text-dark font-num"><?= esc($tpp_info['jumlah_pagu_format'] ?? 'Rp 0') ?></span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-danger">Potongan BPJS 1%</span>
+                                <span class="fw-bold text-danger font-num">- <?= esc($tpp_info['bpjs_1pct_format'] ?? 'Rp 0') ?></span>
+                            </div>
+                            <hr class="my-2">
+                            <div class="d-flex justify-content-between">
+                                <span class="fw-bold text-primary">Pagu Bersih Setelah BPJS</span>
+                                <span class="fw-bold text-primary font-num"><?= esc($tpp_info['tpp_stlh_bpjs_format'] ?? 'Rp 0') ?></span>
+                            </div>
+                        </div>
+
+                        <!-- 2. Kinerja 60% -->
+                        <div class="text-success fw-bold mb-1" style="font-size: 0.72rem;">2. KOMPONEN KINERJA (60%)</div>
+                        <div class="bg-light p-3 rounded-3 mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Alokasi Beban Kerja (60%)</span>
+                                <span class="text-dark font-num"><?= esc($tpp_info['tpp_60_target_format'] ?? 'Rp 0') ?></span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Predikat Capaian SKP</span>
+                                <span class="badge bg-success-subtle text-success border border-success-subtle"><?= esc($tpp_info['predikat_kinerja'] ?? 'Baik') ?> (<?= esc($tpp_info['persen_kinerja'] ?? 100) ?>%)</span>
+                            </div>
+                            <hr class="my-2">
+                            <div class="d-flex justify-content-between">
+                                <span class="fw-bold text-success">Hasil Kinerja Didapat</span>
+                                <span class="fw-bold text-success font-num"><?= esc($tpp_info['jumlah_kinerja_format'] ?? 'Rp 0') ?></span>
+                            </div>
+                        </div>
+
+                        <!-- 3. Disiplin 40% -->
+                        <div class="text-warning fw-bold mb-1" style="font-size: 0.72rem;">3. KOMPONEN DISIPLIN PRESENSI (40%)</div>
+                        <div class="bg-light p-3 rounded-3 mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Alokasi Disiplin (40%)</span>
+                                <span class="text-dark font-num"><?= esc($tpp_info['tpp_40_target_format'] ?? 'Rp 0') ?></span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Potongan Presensi Realtime</span>
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">-<?= esc($tpp_info['persen_pot_disiplin'] ?? 0) ?>%</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Nominal Pengurangan</span>
+                                <span class="text-danger font-num">- <?= esc($tpp_info['nominal_pot_disiplin_format'] ?? 'Rp 0') ?></span>
+                            </div>
+                            <hr class="my-2">
+                            <div class="d-flex justify-content-between">
+                                <span class="fw-bold text-warning">Hasil Disiplin Didapat</span>
+                                <span class="fw-bold text-warning font-num"><?= esc($tpp_info['jumlah_disiplin_format'] ?? 'Rp 0') ?></span>
+                            </div>
+                        </div>
+
+                        <!-- 4. PPh 21 -->
+                        <div class="text-secondary fw-bold mb-1" style="font-size: 0.72rem;">4. PAJAK PPh 21</div>
+                        <div class="bg-light p-3 rounded-3 mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">TPP Kotor (Kin + Dis)</span>
+                                <span class="text-dark font-num"><?= esc($tpp_info['tpp_kotor_format'] ?? 'Rp 0') ?></span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">PPh 21 (<?= esc($tpp_info['tarif_pph_persen'] ?? '0%') ?>)</span>
+                                <span class="text-danger font-num">- <?= esc($tpp_info['nominal_pph21_format'] ?? 'Rp 0') ?></span>
+                            </div>
+                        </div>
+
+                        <!-- 5. Total Bersih -->
+                        <div class="p-3 rounded-3 text-center mb-2" style="background: #E8F5E9; border: 1.5px solid #A5D6A7;">
+                            <div class="text-success fw-bold" style="font-size: 0.72rem;">ESTIMASI TPP BERSIH DITERIMA</div>
+                            <div class="text-success fw-bolder font-num my-1" style="font-size: 1.5rem;">
+                                <?= esc($tpp_info['tpp_bersih_format'] ?? 'Rp 0') ?>
+                            </div>
+                            <small class="text-muted" style="font-size: 0.68rem;">(Hasil Kinerja 60% + Disiplin 40%) - PPh 21</small>
+                        </div>
+                        <small class="text-muted d-block" style="font-size: 0.65rem;">
+                            * Nilai TPP ini merupakan simulasi dinamis perolehan bulan berjalan berdasarkan absensi realtime dan integrasi SKP E-Kinerja.
+                        </small>
+                    </div>
+                    <div class="modal-footer border-top py-2 px-4">
+                        <button type="button" class="btn btn-secondary btn-sm w-100 rounded-pill" data-bs-dismiss="modal">Tutup</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
 </body>
 
 </html>

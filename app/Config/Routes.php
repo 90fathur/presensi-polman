@@ -18,6 +18,8 @@ $routes->group('api', function ($routes) {
     $routes->post('submit_absen_apel', 'Api::submit_absen_apel');
     $routes->post('submit_izin', 'Api::submit_izin');
     $routes->post('update_fcm_token', 'Api::update_fcm_token');
+    $routes->get('tpp_detail', 'Api::tpp_detail');
+    $routes->post('tpp_detail', 'Api::tpp_detail');
 });
 
 // --- LOGIN & AUTH ---
