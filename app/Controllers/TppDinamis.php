@@ -51,7 +51,7 @@ class TppDinamis extends BaseController
             if (!$this->db->tableExists('tpp_pagu')) {
                 $this->db->query("CREATE TABLE IF NOT EXISTS `tpp_pagu` (
                     `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
-                    `id_opd` INT(11) NOT NULL,
+                    `id_opd` INT(11) NOT NULL DEFAULT 0,
                     `nip` VARCHAR(50) NOT NULL,
                     `nama_pegawai` VARCHAR(255) NULL,
                     `jabatan` VARCHAR(255) NULL,
@@ -63,6 +63,16 @@ class TppDinamis extends BaseController
                     UNIQUE KEY `idx_pagu_nip` (`nip`),
                     KEY `idx_pagu_opd` (`id_opd`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;");
+            } else {
+                try {
+                    $this->db->query("ALTER TABLE `tpp_pagu` MODIFY `id_opd` INT(11) NOT NULL DEFAULT 0");
+                } catch (\Throwable $t) {}
+            }
+
+            if ($this->db->tableExists('tpp_ekin_data')) {
+                try {
+                    $this->db->query("ALTER TABLE `tpp_ekin_data` MODIFY `id_opd` INT(11) NOT NULL DEFAULT 0");
+                } catch (\Throwable $t) {}
             }
         } catch (\Throwable $e) {
             log_message('error', 'TppDinamis ensure_schema error: ' . $e->getMessage());
@@ -1040,14 +1050,14 @@ class TppDinamis extends BaseController
             $now = date('Y-m-d H:i:s');
 
             foreach ($parsedData as $nip => $d) {
-                // Untuk file SKP kabupaten, hanya simpan ASN yang terdaftar di sistem presensi
-                if ($isBknSkp && !isset($pegMap[$nip])) {
+                // HANYA BANDINGKAN DENGAN MASTER PEGAWAI: Jika NIP tidak ada di master pegawai, lewati!
+                if (!isset($pegMap[$nip])) {
                     continue;
                 }
 
-                $peg = $pegMap[$nip] ?? null;
-                $actual_opd = $peg ? (int)$peg['id_opd'] : ($id_opd ?: $id_opd_admin);
-                $nama_fix = !empty($d['nama']) ? $d['nama'] : ($peg['nama_lengkap'] ?? '');
+                $peg = $pegMap[$nip];
+                $actual_opd = !empty($peg['id_opd']) ? (int)$peg['id_opd'] : ((int)$id_opd ?: ((int)$id_opd_admin ?: 0));
+                $nama_fix = !empty($peg['nama_lengkap']) ? $peg['nama_lengkap'] : (!empty($d['nama']) ? $d['nama'] : '');
 
                 if (isset($existingMap[$nip])) {
                     $ex = $existingMap[$nip];
@@ -1398,9 +1408,18 @@ class TppDinamis extends BaseController
      */
     public function upload_pagu()
     {
+        ini_set('max_execution_time', '0');
+        ini_set('memory_limit', '-1');
+
+        $level = session()->get('level');
+        $id_opd_admin = (int)session()->get('id_opd');
         $request = \Config\Services::request();
+
         $file = $request->getFile('file_excel');
         $id_opd = (int)$request->getPost('id_opd');
+        if (empty($id_opd)) {
+            $id_opd = $id_opd_admin;
+        }
 
         if (!$file || !$file->isValid()) {
             return $this->response->setJSON(['status' => 'error', 'message' => 'File tidak valid atau belum dipilih.']);
@@ -1414,8 +1433,23 @@ class TppDinamis extends BaseController
         try {
             $filePath = $file->getTempName();
             $reader = IOFactory::createReaderForFile($filePath);
+            $reader->setReadDataOnly(false); // agar rumus seperti =SUM(499535*80%) dapat dihitung
             $spreadsheet = $reader->load($filePath);
             $sheetNames = $spreadsheet->getSheetNames();
+
+            // 1. Ambil seluruh data master pegawai indexed by NIP
+            $pegBuilder = $this->db->table('pegawai')->select('id_pegawai, id_opd, nip, nama_lengkap, jabatan');
+            if (!in_array($level, ['Superadmin', 'kabupaten']) && !empty($id_opd_admin)) {
+                $pegBuilder->where('id_opd', $id_opd_admin);
+            }
+            $pegList = $pegBuilder->get()->getResultArray();
+            $masterPegawai = [];
+            foreach ($pegList as $pg) {
+                $cleanNip = preg_replace('/[^0-9]/', '', (string)$pg['nip']);
+                if (!empty($cleanNip)) {
+                    $masterPegawai[$cleanNip] = $pg;
+                }
+            }
 
             $parsedPagu = [];
 
@@ -1424,20 +1458,37 @@ class TppDinamis extends BaseController
                 $sheet = $spreadsheet->getSheetByName('TPP REKAP BK&KK');
                 $highestRow = $sheet->getHighestRow();
                 for ($r = 12; $r <= $highestRow; $r += 2) {
-                    $nama = trim((string)$sheet->getCell("B$r")->getValue());
                     $nipRaw = trim((string)$sheet->getCell("B" . ($r + 1))->getValue());
-                    if (empty($nama) && empty($nipRaw)) continue;
-
                     $nip = preg_replace('/[^0-9]/', '', $nipRaw);
                     if (empty($nip)) continue;
 
-                    $tpp_bk = (float)$sheet->getCell("F$r")->getValue();
-                    $tpp_kk = (float)$sheet->getCell("G$r")->getValue();
+                    // HANYA BANDINGKAN DENGAN NIP YANG ADA DI MASTER PEGAWAI
+                    if (!isset($masterPegawai[$nip])) {
+                        continue;
+                    }
+
+                    $nama = trim((string)$sheet->getCell("B$r")->getValue());
+                    $jabatan = trim((string)$sheet->getCell("D$r")->getValue());
+
+                    // Evaluasi nilai (termasuk jika berisi rumus seperti =SUM(499535*80%))
+                    try {
+                        $rawBk = $sheet->getCell("F$r")->getCalculatedValue();
+                    } catch (\Throwable $t) {
+                        $rawBk = $sheet->getCell("F$r")->getValue();
+                    }
+                    try {
+                        $rawKk = $sheet->getCell("G$r")->getCalculatedValue();
+                    } catch (\Throwable $t) {
+                        $rawKk = $sheet->getCell("G$r")->getValue();
+                    }
+
+                    $tpp_bk = is_numeric($rawBk) ? (float)$rawBk : 0.00;
+                    $tpp_kk = is_numeric($rawKk) ? (float)$rawKk : 0.00;
 
                     $parsedPagu[$nip] = [
                         'nip'     => $nip,
                         'nama'    => $nama,
-                        'jabatan' => trim((string)$sheet->getCell("D$r")->getValue()),
+                        'jabatan' => $jabatan,
                         'tpp_bk'  => $tpp_bk,
                         'tpp_kk'  => $tpp_kk
                     ];
@@ -1474,10 +1525,27 @@ class TppDinamis extends BaseController
                     $nip = preg_replace('/[^0-9]/', '', $nipRaw);
                     if (empty($nip)) continue;
 
+                    // HANYA BANDINGKAN DENGAN NIP YANG ADA DI MASTER PEGAWAI
+                    if (!isset($masterPegawai[$nip])) {
+                        continue;
+                    }
+
                     $nama = isset($colMap['nama']) ? trim((string)$sheet->getCell($colMap['nama'] . $r)->getValue()) : '';
                     $jabatan = isset($colMap['jabatan']) ? trim((string)$sheet->getCell($colMap['jabatan'] . $r)->getValue()) : '';
-                    $bk = isset($colMap['bk']) ? (float)$sheet->getCell($colMap['bk'] . $r)->getValue() : 0.00;
-                    $kk = isset($colMap['kk']) ? (float)$sheet->getCell($colMap['kk'] . $r)->getValue() : 0.00;
+
+                    try {
+                        $rawBk = isset($colMap['bk']) ? $sheet->getCell($colMap['bk'] . $r)->getCalculatedValue() : 0.00;
+                    } catch (\Throwable $t) {
+                        $rawBk = isset($colMap['bk']) ? $sheet->getCell($colMap['bk'] . $r)->getValue() : 0.00;
+                    }
+                    try {
+                        $rawKk = isset($colMap['kk']) ? $sheet->getCell($colMap['kk'] . $r)->getCalculatedValue() : 0.00;
+                    } catch (\Throwable $t) {
+                        $rawKk = isset($colMap['kk']) ? $sheet->getCell($colMap['kk'] . $r)->getValue() : 0.00;
+                    }
+
+                    $bk = is_numeric($rawBk) ? (float)$rawBk : 0.00;
+                    $kk = is_numeric($rawKk) ? (float)$rawKk : 0.00;
 
                     $parsedPagu[$nip] = [
                         'nip'     => $nip,
@@ -1490,17 +1558,27 @@ class TppDinamis extends BaseController
             }
 
             if (empty($parsedPagu)) {
-                return $this->response->setJSON(['status' => 'error', 'message' => 'Tidak ada data pagu TPP yang dapat dibaca dari file Excel.']);
+                return $this->response->setJSON(['status' => 'error', 'message' => 'Tidak ada NIP pegawai yang cocok dengan master data pegawai.']);
+            }
+
+            // Ambil data existing tpp_pagu dalam 1 query untuk NIP terkait
+            $existingPaguRows = $this->db->table('tpp_pagu')
+                ->whereIn('nip', array_keys($parsedPagu))
+                ->get()->getResultArray();
+            $existingPaguMap = [];
+            foreach ($existingPaguRows as $epr) {
+                $existingPaguMap[$epr['nip']] = $epr;
             }
 
             $countSaved = 0;
-            foreach ($parsedPagu as $nip => $p) {
-                $peg = $this->db->table('pegawai')->select('id_opd, nama_lengkap, jabatan')->where('nip', $nip)->get()->getRow();
-                $actual_opd = $peg ? $peg->id_opd : $id_opd;
-                $actual_nama = !empty($p['nama']) ? $p['nama'] : ($peg->nama_lengkap ?? '');
-                $actual_jabatan = !empty($p['jabatan']) ? $p['jabatan'] : ($peg->jabatan ?? '');
+            $now = date('Y-m-d H:i:s');
 
-                $existingPagu = $this->db->table('tpp_pagu')->where('nip', $nip)->get()->getRow();
+            foreach ($parsedPagu as $nip => $p) {
+                $peg = $masterPegawai[$nip] ?? null;
+                $actual_opd = !empty($peg['id_opd']) ? (int)$peg['id_opd'] : ((int)$id_opd ?: 0);
+                $actual_nama = !empty($peg['nama_lengkap']) ? $peg['nama_lengkap'] : (!empty($p['nama']) ? $p['nama'] : '');
+                $actual_jabatan = !empty($peg['jabatan']) ? $peg['jabatan'] : (!empty($p['jabatan']) ? $p['jabatan'] : '');
+
                 $payloadPagu = [
                     'id_opd'       => $actual_opd,
                     'nip'          => $nip,
@@ -1508,13 +1586,13 @@ class TppDinamis extends BaseController
                     'jabatan'      => $actual_jabatan,
                     'tpp_bk'       => $p['tpp_bk'],
                     'tpp_kk'       => $p['tpp_kk'],
-                    'updated_at'   => date('Y-m-d H:i:s')
+                    'updated_at'   => $now
                 ];
 
-                if ($existingPagu) {
-                    $this->db->table('tpp_pagu')->where('nip', $nip)->update($payloadPagu);
+                if (isset($existingPaguMap[$nip])) {
+                    $this->db->table('tpp_pagu')->where('id', $existingPaguMap[$nip]['id'])->update($payloadPagu);
                 } else {
-                    $payloadPagu['created_at'] = date('Y-m-d H:i:s');
+                    $payloadPagu['created_at'] = $now;
                     $this->db->table('tpp_pagu')->insert($payloadPagu);
                 }
                 $countSaved++;
@@ -1522,7 +1600,7 @@ class TppDinamis extends BaseController
 
             return $this->response->setJSON([
                 'status'  => 'success',
-                'message' => "Berhasil memproses $countSaved data Master Pagu TPP!"
+                'message' => "Berhasil memproses $countSaved data Master Pagu TPP sesuai NIP Master Pegawai!"
             ]);
 
         } catch (\Exception $e) {
@@ -1545,12 +1623,14 @@ class TppDinamis extends BaseController
 
         $peg = $this->db->table('pegawai')->where('nip', $nip)->get()->getRow();
         if (!$peg) {
-            return $this->response->setJSON(['status' => 'error', 'message' => 'Pegawai tidak ditemukan.']);
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Pegawai tidak ditemukan di master data.']);
         }
+
+        $actual_opd = !empty($peg->id_opd) ? (int)$peg->id_opd : ((int)session()->get('id_opd') ?: 0);
 
         $existing = $this->db->table('tpp_pagu')->where('nip', $nip)->get()->getRow();
         $payload = [
-            'id_opd'       => $peg->id_opd,
+            'id_opd'       => $actual_opd,
             'nip'          => $nip,
             'nama_pegawai' => $peg->nama_lengkap,
             'jabatan'      => $peg->jabatan,
