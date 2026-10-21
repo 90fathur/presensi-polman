@@ -203,25 +203,27 @@
                             <input type="number" name="wke" id="modal_wke" class="form-control form-control-sm" required>
                         </div>
                         <div class="col-6">
-                            <label class="form-label small fw-bold text-muted mb-1">% Kinerja</label>
-                            <input type="number" step="0.01" name="persen_kinerja" id="modal_pct" class="form-control form-control-sm" required>
+                            <label class="form-label small fw-bold text-muted mb-1">Rating / Predikat Kinerja</label>
+                            <select name="predikat_kinerja" id="modal_predikat" class="form-select form-select-sm">
+                                <option value="SANGAT BAIK">SANGAT BAIK (100%)</option>
+                                <option value="BAIK">BAIK (100%)</option>
+                                <option value="BUTUH PERBAIKAN">BUTUH PERBAIKAN (75%)</option>
+                                <option value="KURANG">KURANG (50%)</option>
+                                <option value="SANGAT KURANG">SANGAT KURANG (0%)</option>
+                            </select>
                         </div>
                         <div class="col-6">
-                            <label class="form-label small fw-bold text-muted mb-1">TPP BK</label>
+                            <label class="form-label small fw-bold text-muted mb-1">% Kinerja (0 - 100)</label>
+                            <input type="number" step="0.01" name="persen_kinerja" id="modal_pct" class="form-control form-control-sm" required>
+                            <span class="text-muted" style="font-size: 0.68rem;">Otomatis terisi dari predikat</span>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold text-muted mb-1">TPP BK (Beban Kerja)</label>
                             <input type="number" step="0.01" name="tpp_bk" id="modal_bk" class="form-control form-control-sm" required>
                         </div>
-                        <div class="col-6">
-                            <label class="form-label small fw-bold text-muted mb-1">TPP KK</label>
-                            <input type="number" step="0.01" name="tpp_kk" id="modal_kk" class="form-control form-control-sm" required>
-                        </div>
                         <div class="col-12">
-                            <label class="form-label small fw-bold text-muted mb-1">Rating / Predikat</label>
-                            <select name="predikat_kinerja" id="modal_predikat" class="form-select form-select-sm">
-                                <option value="SANGAT BAIK">SANGAT BAIK</option>
-                                <option value="BAIK">BAIK</option>
-                                <option value="BUTUH PERBAIKAN">BUTUH PERBAIKAN</option>
-                                <option value="KURANG">KURANG</option>
-                            </select>
+                            <label class="form-label small fw-bold text-muted mb-1">TPP KK (Kondisi Kerja)</label>
+                            <input type="number" step="0.01" name="tpp_kk" id="modal_kk" class="form-control form-control-sm" required>
                         </div>
                     </div>
                 </div>
@@ -236,6 +238,19 @@
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
+    function getPersenByPredikat(pred) {
+        pred = (pred || '').toUpperCase().trim();
+        if (pred === 'SANGAT BAIK' || pred === 'BAIK') return 100;
+        if (pred === 'BUTUH PERBAIKAN') return 75;
+        if (pred === 'KURANG') return 50;
+        if (pred === 'SANGAT KURANG') return 0;
+        return 100;
+    }
+
+    document.getElementById('modal_predikat').addEventListener('change', function() {
+        document.getElementById('modal_pct').value = getPersenByPredikat(this.value);
+    });
+
     function openEditModal(nip, nama, wke, pct, bk, kk, predikat) {
         document.getElementById('modal_nip').value = nip;
         document.getElementById('modal_nama').innerText = nama;
@@ -244,7 +259,13 @@
         document.getElementById('modal_pct').value = pct || '100';
         document.getElementById('modal_bk').value = bk || '0';
         document.getElementById('modal_kk').value = kk || '0';
-        document.getElementById('modal_predikat').value = predikat || 'BAIK';
+
+        var predUpper = (predikat || 'BAIK').toUpperCase();
+        var sel = document.getElementById('modal_predikat');
+        sel.value = predUpper;
+        if (!sel.value) {
+            sel.value = 'BAIK';
+        }
 
         new bootstrap.Modal(document.getElementById('modalEdit')).show();
     }
@@ -253,7 +274,7 @@
         e.preventDefault();
         var btn = document.getElementById('btnUploadModalSubmit');
         btn.disabled = true;
-        btn.innerText = 'Mengupload...';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Mengupload...';
 
         const fd = new FormData(this);
         fetch('<?= base_url('tpp_dinamis/upload_ekin') ?>', {
@@ -263,16 +284,21 @@
         .then(r => r.json())
         .then(res => {
             btn.disabled = false;
-            btn.innerText = 'Upload Sekarang';
+            btn.innerHTML = 'Upload Sekarang';
             if (res.status === 'success') {
                 Swal.fire({icon: 'success', title: 'Berhasil', text: res.message}).then(() => {
-                    const targetBln = fd.get('bulan') || '<?= $bulan ?>';
-                    const targetThn = fd.get('tahun') || '<?= $tahun ?>';
+                    const targetBln = res.bulan || fd.get('bulan') || '<?= $bulan ?>';
+                    const targetThn = res.tahun || fd.get('tahun') || '<?= $tahun ?>';
                     window.location.href = '<?= base_url('tpp_dinamis/kelola_ekin') ?>?id_opd=<?= $selected_opd ?>&bulan=' + encodeURIComponent(targetBln) + '&tahun=' + encodeURIComponent(targetThn);
                 });
             } else {
                 Swal.fire({icon: 'error', title: 'Gagal', text: res.message});
             }
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.innerHTML = 'Upload Sekarang';
+            Swal.fire({icon: 'error', title: 'Kesalahan Sistem', text: 'Gagal menghubungi server.'});
         });
     });
 
@@ -280,7 +306,7 @@
         e.preventDefault();
         var btn = document.getElementById('btnEditSubmit');
         btn.disabled = true;
-        btn.innerText = 'Menyimpan...';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Menyimpan...';
 
         fetch('<?= base_url('tpp_dinamis/save_manual_ekin') ?>', {
             method: 'POST',
@@ -289,12 +315,17 @@
         .then(r => r.json())
         .then(res => {
             btn.disabled = false;
-            btn.innerText = 'Simpan';
+            btn.innerHTML = 'Simpan';
             if (res.status === 'success') {
                 Swal.fire({icon: 'success', title: 'Tersimpan', text: res.message, timer: 1500, showConfirmButton: false}).then(() => location.reload());
             } else {
                 Swal.fire({icon: 'error', title: 'Gagal', text: res.message});
             }
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.innerHTML = 'Simpan';
+            Swal.fire({icon: 'error', title: 'Kesalahan Sistem', text: 'Gagal menghubungi server.'});
         });
     });
 </script>

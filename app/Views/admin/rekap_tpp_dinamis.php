@@ -315,7 +315,10 @@
 
                                 <!-- Kinerja 60% -->
                                 <td class="text-end pe-2 bg-kinerja"><?= number_format($p['tpp_60'], 0, ',', '.') ?></td>
-                                <td class="bg-kinerja fw-bold text-primary"><?= number_format($p['persen_kinerja'], 0) ?>%</td>
+                                <td class="bg-kinerja fw-bold text-primary">
+                                    <div><?= number_format($p['persen_kinerja'], 0) ?>%</div>
+                                    <span class="badge bg-white text-dark border px-1 mt-1" style="font-size: 0.62rem;"><?= esc($p['predikat_kinerja']) ?></span>
+                                </td>
                                 <td class="text-end pe-2 bg-kinerja fw-bold text-primary"><?= number_format($p['jumlah_tpp_kinerja'], 0, ',', '.') ?></td>
 
                                 <!-- Disiplin 40% -->
@@ -406,6 +409,7 @@
                         <i class="fas fa-info-circle me-1"></i>
                         <b>Dukungan Otomatis Format File:</b>
                         <ul class="mb-0 ps-3 mt-1">
+                            <li>Laporan Penilaian SKP Resmi SIASN / BKN (Contoh: <b>Laporan Penilaian SKP.xlsx</b>)</li>
                             <li>File rekap BKPSDM (Sheet <b>TPP REKAP BK&KK</b>)</li>
                             <li>File capaian E-Kinerja ASN (Sheet <b>PK PNS</b>)</li>
                             <li>Template Excel Resmi Presensi AI (.xlsx/.xls)</li>
@@ -522,11 +526,11 @@
                         <div class="col-12">
                             <label class="form-label small fw-bold text-muted mb-1">Rating / Predikat Kinerja</label>
                             <select name="predikat_kinerja" id="edit_predikat" class="form-select form-select-sm">
-                                <option value="SANGAT BAIK">SANGAT BAIK</option>
-                                <option value="BAIK" selected>BAIK</option>
-                                <option value="BUTUH PERBAIKAN">BUTUH PERBAIKAN</option>
-                                <option value="KURANG">KURANG</option>
-                                <option value="SANGAT KURANG">SANGAT KURANG</option>
+                                <option value="SANGAT BAIK">SANGAT BAIK (100%)</option>
+                                <option value="BAIK">BAIK (100%)</option>
+                                <option value="BUTUH PERBAIKAN">BUTUH PERBAIKAN (75%)</option>
+                                <option value="KURANG">KURANG (50%)</option>
+                                <option value="SANGAT KURANG">SANGAT KURANG (0%)</option>
                             </select>
                         </div>
                     </div>
@@ -544,6 +548,19 @@
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
+    function getPersenByPredikat(pred) {
+        pred = (pred || '').toUpperCase().trim();
+        if (pred === 'SANGAT BAIK' || pred === 'BAIK') return 100;
+        if (pred === 'BUTUH PERBAIKAN') return 75;
+        if (pred === 'KURANG') return 50;
+        if (pred === 'SANGAT KURANG') return 0;
+        return 100;
+    }
+
+    document.getElementById('edit_predikat').addEventListener('change', function() {
+        document.getElementById('edit_persen_kinerja').value = getPersenByPredikat(this.value);
+    });
+
     function openEditModal(nip, nama, wke, persenKinerja, tppBk, tppKk, predikat) {
         document.getElementById('edit_nip').value = nip;
         document.getElementById('edit_nama').innerText = nama;
@@ -552,7 +569,11 @@
         document.getElementById('edit_persen_kinerja').value = persenKinerja || '100';
         document.getElementById('edit_tpp_bk').value = tppBk || '0';
         document.getElementById('edit_tpp_kk').value = tppKk || '0';
-        document.getElementById('edit_predikat').value = predikat || 'BAIK';
+
+        var predUpper = (predikat || 'BAIK').toUpperCase();
+        var sel = document.getElementById('edit_predikat');
+        sel.value = predUpper;
+        if (!sel.value) sel.value = 'BAIK';
 
         var editModal = new bootstrap.Modal(document.getElementById('modalEditEkin'));
         editModal.show();
@@ -585,8 +606,8 @@
                     timer: 2500,
                     showConfirmButton: true
                 }).then(() => {
-                    const targetBln = formData.get('bulan') || '<?= $bulan ?>';
-                    const targetThn = formData.get('tahun') || '<?= $tahun ?>';
+                    const targetBln = res.bulan || formData.get('bulan') || '<?= $bulan ?>';
+                    const targetThn = res.tahun || formData.get('tahun') || '<?= $tahun ?>';
                     window.location.href = '<?= base_url('tpp_dinamis') ?>?id_opd=<?= $selected_opd ?>&status_asn=<?= $selected_status_asn ?? '' ?>&bulan=' + encodeURIComponent(targetBln) + '&tahun=' + encodeURIComponent(targetThn);
                 });
             } else {

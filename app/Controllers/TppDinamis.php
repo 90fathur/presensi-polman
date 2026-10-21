@@ -104,6 +104,69 @@ class TppDinamis extends BaseController
     }
 
     /**
+     * Konversi Predikat Kinerja E-Kinerja (SKP BKN) ke Persentase Beban Kerja (60%):
+     * a. Sangat Baik = 100% (seratus persen)
+     * b. Baik = 100% (seratus persen)
+     * c. Butuh Perbaikan = 75% (tujuh puluh lima persen)
+     * d. Kurang = 50% (lima puluh persen)
+     * e. Sangat Kurang = 0% (nol persen)
+     */
+    public static function konversi_predikat_ke_persen($predikat)
+    {
+        $p = strtolower(trim((string)$predikat));
+        if ($p === '') {
+            return 100.00;
+        }
+
+        // a. Sangat Baik = 100%
+        if (strpos($p, 'sangat baik') !== false) {
+            return 100.00;
+        }
+        // e. Sangat Kurang = 0% (cek sebelum 'kurang')
+        if (strpos($p, 'sangat kurang') !== false) {
+            return 0.00;
+        }
+        // c. Butuh Perbaikan = 75%
+        if (strpos($p, 'butuh perbaikan') !== false || strpos($p, 'perbaikan') !== false) {
+            return 75.00;
+        }
+        // d. Kurang = 50%
+        if (strpos($p, 'kurang') !== false) {
+            return 50.00;
+        }
+        // b. Baik = 100%
+        if (strpos($p, 'baik') !== false) {
+            return 100.00;
+        }
+
+        return 100.00;
+    }
+
+    /**
+     * Format label predikat standar huruf besar
+     */
+    public static function format_predikat_label($predikat)
+    {
+        $p = strtolower(trim((string)$predikat));
+        if (strpos($p, 'sangat baik') !== false) {
+            return 'SANGAT BAIK';
+        }
+        if (strpos($p, 'sangat kurang') !== false) {
+            return 'SANGAT KURANG';
+        }
+        if (strpos($p, 'butuh perbaikan') !== false || strpos($p, 'perbaikan') !== false) {
+            return 'BUTUH PERBAIKAN';
+        }
+        if (strpos($p, 'kurang') !== false) {
+            return 'KURANG';
+        }
+        if (strpos($p, 'baik') !== false) {
+            return 'BAIK';
+        }
+        return strtoupper(trim((string)$predikat)) ?: 'BAIK';
+    }
+
+    /**
      * Halaman Utama: Rekap TPP BK & KK Dinamis (Beban Kerja 60% & Disiplin 40%)
      */
     public function index()
@@ -698,13 +761,20 @@ class TppDinamis extends BaseController
     /**
      * Upload File Excel Ekin / TPP
      * Mendukung:
+     * 0. Laporan Penilaian SKP Resmi SIASN / BKN (seperti Laporan Penilaian SKP (25).xlsx)
      * 1. Sheet 'TPP REKAP BK&KK' (file seperti TPP_BKPSDM_AGUSTUS 2026.xlsx)
      * 2. Sheet 'PK PNS' (sheet produktivitas PNS)
      * 3. Template Generic (kolom NIP, WKE, % Kinerja, TPP BK, TPP KK)
      */
     public function upload_ekin()
     {
+        ini_set('max_execution_time', '0');
+        ini_set('memory_limit', '-1');
+
+        $level = session()->get('level');
+        $id_opd_admin = (int)session()->get('id_opd');
         $request = \Config\Services::request();
+
         $file = $request->getFile('file_excel');
         $id_opd = (int)$request->getPost('id_opd');
         $bulan = (int)$request->getPost('bulan');
@@ -722,13 +792,93 @@ class TppDinamis extends BaseController
         try {
             $filePath = $file->getTempName();
             $reader = IOFactory::createReaderForFile($filePath);
+            $reader->setReadDataOnly(true);
             $spreadsheet = $reader->load($filePath);
             $sheetNames = $spreadsheet->getSheetNames();
 
-            $parsedData = [];
+            $bulanMap = [
+                'januari' => 1, 'februari' => 2, 'maret' => 3, 'april' => 4,
+                'mei' => 5, 'juni' => 6, 'juli' => 7, 'agustus' => 8,
+                'september' => 9, 'oktober' => 10, 'november' => 11, 'desember' => 12
+            ];
+            $bulanNamesIndo = [
+                1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
+                5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
+                9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'
+            ];
 
+            $parsedData = [];
+            $isBknSkp = false;
+            $detectedBulan = null;
+            $detectedTahun = null;
+
+            // Periksa apakah sheet aktif merupakan Laporan SKP BKN (contoh: Laporan Penilaian SKP (25).xlsx)
+            $activeSheet = $spreadsheet->getActiveSheet();
+            $cellA1 = (string)$activeSheet->getCell('A1')->getValue();
+            $cellA2 = (string)$activeSheet->getCell('A2')->getValue();
+            $cellA3 = (string)$activeSheet->getCell('A3')->getValue();
+            $cellD8 = strtolower(trim((string)$activeSheet->getCell('D8')->getValue()));
+            $cellQ8 = strtolower(trim((string)$activeSheet->getCell('Q8')->getValue()));
+
+            if (stripos($cellA1, 'Laporan Penilaian SKP') !== false || ($cellD8 === 'nip' && $cellQ8 === 'hasil_akhir')) {
+                $isBknSkp = true;
+            }
+
+            // Case 0: Laporan Penilaian SKP Resmi BKN / SIASN E-Kinerja
+            if ($isBknSkp) {
+                // Auto-detect bulan & tahun dari header laporan
+                foreach ([$cellA1, $cellA2, $cellA3] as $hdr) {
+                    $hdrLower = strtolower($hdr);
+                    foreach ($bulanMap as $bName => $bNum) {
+                        if (strpos($hdrLower, $bName) !== false) {
+                            $detectedBulan = $bNum;
+                            break;
+                        }
+                    }
+                    if (preg_match('/20[2-9][0-9]/', $hdr, $mYear)) {
+                        $detectedTahun = (int)$mYear[0];
+                    }
+                }
+
+                // Jika terdeteksi di dokumen, prioritaskan bulan & tahun dokumen tersebut
+                if ($detectedBulan) {
+                    $bulan = $detectedBulan;
+                }
+                if ($detectedTahun) {
+                    $tahun = $detectedTahun;
+                }
+
+                $highestRow = $activeSheet->getHighestRow();
+                // Gunakan rangeToArray agar cepat (kurang dari 1 detik untuk 10.000 baris)
+                $rowsData = $activeSheet->rangeToArray("A9:Q$highestRow", null, false, false, false);
+
+                foreach ($rowsData as $row) {
+                    $nipRaw = (string)($row[3] ?? ''); // Col D (index 3)
+                    $nip = preg_replace('/[^0-9]/', '', $nipRaw);
+                    if (empty($nip)) continue;
+
+                    $nama = trim((string)($row[4] ?? '')); // Col E (index 4)
+                    $predikatRaw = trim((string)($row[16] ?? '')); // Col Q (index 16: hasil_akhir)
+                    if (empty($predikatRaw)) {
+                        $predikatRaw = 'baik';
+                    }
+
+                    $predikat = self::format_predikat_label($predikatRaw);
+                    $pct = self::konversi_predikat_ke_persen($predikatRaw);
+
+                    $parsedData[$nip] = [
+                        'nip'            => $nip,
+                        'nama'           => $nama,
+                        'wke'            => '0',
+                        'predikat'       => $predikat,
+                        'persen_kinerja' => $pct,
+                        'tpp_bk'         => null,
+                        'tpp_kk'         => null
+                    ];
+                }
+            }
             // Case 1: Terdapat Sheet 'TPP REKAP BK&KK'
-            if (in_array('TPP REKAP BK&KK', $sheetNames)) {
+            elseif (in_array('TPP REKAP BK&KK', $sheetNames)) {
                 $sheet = $spreadsheet->getSheetByName('TPP REKAP BK&KK');
                 $highestRow = $sheet->getHighestRow();
                 for ($r = 12; $r <= $highestRow; $r += 2) {
@@ -747,11 +897,13 @@ class TppDinamis extends BaseController
                     if ($pct <= 1.0 && $pct > 0) $pct *= 100;
                     if ($pct == 0) $pct = 100;
 
+                    $predikat = ($pct < 100) ? ($pct <= 50 ? 'KURANG' : 'BUTUH PERBAIKAN') : 'BAIK';
+
                     $parsedData[$nip] = [
                         'nip'             => $nip,
                         'nama'            => $nama,
                         'wke'             => $wke,
-                        'predikat'        => 'BAIK',
+                        'predikat'        => $predikat,
                         'persen_kinerja'  => $pct,
                         'tpp_bk'          => $tpp_bk,
                         'tpp_kk'          => $tpp_kk
@@ -771,10 +923,15 @@ class TppDinamis extends BaseController
                     if (empty($nip)) continue;
 
                     $wke = (string)$sheet->getCell("E$r")->getValue();
-                    $rating = trim((string)$sheet->getCell("H$r")->getValue()) ?: 'BAIK';
-                    $pct = (float)$sheet->getCell("I$r")->getValue();
-                    if ($pct <= 1.0 && $pct > 0) $pct *= 100;
-                    if ($pct == 0) $pct = 100;
+                    $ratingRaw = trim((string)$sheet->getCell("H$r")->getValue()) ?: 'BAIK';
+                    $rating = self::format_predikat_label($ratingRaw);
+                    $pctCell = $sheet->getCell("I$r")->getValue();
+                    if ($pctCell !== null && $pctCell !== '') {
+                        $pct = (float)$pctCell;
+                        if ($pct <= 1.0 && $pct > 0) $pct *= 100;
+                    } else {
+                        $pct = self::konversi_predikat_ke_persen($ratingRaw);
+                    }
 
                     $parsedData[$nip] = [
                         'nip'             => $nip,
@@ -802,7 +959,7 @@ class TppDinamis extends BaseController
                         if (strpos($val, 'nip') !== false) $colMap['nip'] = $c;
                         if (strpos($val, 'wke') !== false) $colMap['wke'] = $c;
                         if (strpos($val, 'kinerja') !== false || strpos($val, 'capaian') !== false || strpos($val, 'produktivitas') !== false) $colMap['kinerja'] = $c;
-                        if (strpos($val, 'rating') !== false || strpos($val, 'predikat') !== false) $colMap['predikat'] = $c;
+                        if (strpos($val, 'rating') !== false || strpos($val, 'predikat') !== false || strpos($val, 'hasil_akhir') !== false) $colMap['predikat'] = $c;
                         if (strpos($val, 'tpp bk') !== false || strpos($val, 'beban kerja') !== false) $colMap['bk'] = $c;
                         if (strpos($val, 'tpp kk') !== false || strpos($val, 'kondisi kerja') !== false) $colMap['kk'] = $c;
                         if (strpos($val, 'nama') !== false) $colMap['nama'] = $c;
@@ -823,12 +980,16 @@ class TppDinamis extends BaseController
                     if (empty($nip)) continue;
 
                     $wke = isset($colMap['wke']) ? (string)$sheet->getCell($colMap['wke'] . $r)->getCalculatedValue() : '0';
-                    $pct = isset($colMap['kinerja']) ? (float)$sheet->getCell($colMap['kinerja'] . $r)->getCalculatedValue() : 100.0;
-                    if ($pct <= 1.0 && $pct > 0) $pct *= 100;
-                    if ($pct == 0 && isset($colMap['kinerja'])) $pct = 0;
-                    elseif ($pct == 0) $pct = 100;
+                    $predikatRaw = isset($colMap['predikat']) ? trim((string)$sheet->getCell($colMap['predikat'] . $r)->getValue()) : 'BAIK';
+                    $predikat = self::format_predikat_label($predikatRaw);
 
-                    $predikat = isset($colMap['predikat']) ? trim((string)$sheet->getCell($colMap['predikat'] . $r)->getValue()) : 'BAIK';
+                    if (isset($colMap['kinerja'])) {
+                        $pct = (float)$sheet->getCell($colMap['kinerja'] . $r)->getCalculatedValue();
+                        if ($pct <= 1.0 && $pct > 0) $pct *= 100;
+                    } else {
+                        $pct = self::konversi_predikat_ke_persen($predikatRaw);
+                    }
+
                     $bk = isset($colMap['bk']) ? (float)$sheet->getCell($colMap['bk'] . $r)->getValue() : null;
                     $kk = isset($colMap['kk']) ? (float)$sheet->getCell($colMap['kk'] . $r)->getValue() : null;
                     $nama = isset($colMap['nama']) ? trim((string)$sheet->getCell($colMap['nama'] . $r)->getValue()) : '';
@@ -837,7 +998,7 @@ class TppDinamis extends BaseController
                         'nip'             => $nip,
                         'nama'            => $nama,
                         'wke'             => $wke,
-                        'predikat'        => $predikat ?: 'BAIK',
+                        'predikat'        => $predikat,
                         'persen_kinerja'  => $pct,
                         'tpp_bk'          => $bk,
                         'tpp_kk'          => $kk
@@ -849,53 +1010,112 @@ class TppDinamis extends BaseController
                 return $this->response->setJSON(['status' => 'error', 'message' => 'Tidak ada data pegawai yang dapat dibaca dari file Excel.']);
             }
 
-            // Simpan / Upsert ke tabel tpp_ekin_data
-            $inserted = 0;
-            $updated = 0;
+            // Pastikan bulan dan tahun valid
+            if ($bulan < 1 || $bulan > 12) $bulan = (int)date('m');
+            if ($tahun < 2020 || $tahun > 2035) $tahun = (int)date('Y');
+
+            // Optimasi Database: Ambil pegawai untuk pencocokan instan di memory
+            $pegBuilder = $this->db->table('pegawai')->select('id_pegawai, id_opd, nip, nama_lengkap');
+            if (!in_array($level, ['Superadmin', 'kabupaten'])) {
+                $pegBuilder->where('id_opd', $id_opd_admin);
+            }
+            $pegList = $pegBuilder->get()->getResultArray();
+            $pegMap = [];
+            foreach ($pegList as $p) {
+                $pegMap[$p['nip']] = $p;
+            }
+
+            // Ambil data existing tpp_ekin_data pada bulan & tahun ini dalam 1 query
+            $existingRows = $this->db->table('tpp_ekin_data')
+                ->where('bulan', $bulan)
+                ->where('tahun', $tahun)
+                ->get()->getResultArray();
+            $existingMap = [];
+            foreach ($existingRows as $er) {
+                $existingMap[$er['nip']] = $er;
+            }
+
+            $insertBatch = [];
+            $updateBatch = [];
+            $now = date('Y-m-d H:i:s');
 
             foreach ($parsedData as $nip => $d) {
-                // Cari data existing jika ada
-                $existing = $this->db->table('tpp_ekin_data')
-                    ->where('nip', $nip)
-                    ->where('bulan', $bulan)
-                    ->where('tahun', $tahun)
-                    ->get()->getRow();
-
-                $bk_val = ($d['tpp_bk'] !== null) ? $d['tpp_bk'] : ($existing->tpp_bk ?? 0.00);
-                $kk_val = ($d['tpp_kk'] !== null) ? $d['tpp_kk'] : ($existing->tpp_kk ?? 0.00);
-
-                // Cek id_opd pegawai asli jika tidak ditentukan
-                $peg = $this->db->table('pegawai')->select('id_opd, nama_lengkap')->where('nip', $nip)->get()->getRow();
-                $actual_opd = $peg ? $peg->id_opd : $id_opd;
-                $nama_fix = !empty($d['nama']) ? $d['nama'] : ($peg->nama_lengkap ?? '');
-
-                $payload = [
-                    'id_opd'           => $actual_opd,
-                    'nip'              => $nip,
-                    'nama_pegawai'     => $nama_fix,
-                    'bulan'            => $bulan,
-                    'tahun'            => $tahun,
-                    'wke'              => (string)$d['wke'],
-                    'predikat_kinerja' => $d['predikat'],
-                    'persen_kinerja'   => $d['persen_kinerja'],
-                    'tpp_bk'           => $bk_val,
-                    'tpp_kk'           => $kk_val,
-                    'updated_at'       => date('Y-m-d H:i:s')
-                ];
-
-                if ($existing) {
-                    $this->db->table('tpp_ekin_data')->where('id', $existing->id)->update($payload);
-                    $updated++;
-                } else {
-                    $payload['created_at'] = date('Y-m-d H:i:s');
-                    $this->db->table('tpp_ekin_data')->insert($payload);
-                    $inserted++;
+                // Untuk file SKP kabupaten, hanya simpan ASN yang terdaftar di sistem presensi
+                if ($isBknSkp && !isset($pegMap[$nip])) {
+                    continue;
                 }
+
+                $peg = $pegMap[$nip] ?? null;
+                $actual_opd = $peg ? (int)$peg['id_opd'] : ($id_opd ?: $id_opd_admin);
+                $nama_fix = !empty($d['nama']) ? $d['nama'] : ($peg['nama_lengkap'] ?? '');
+
+                if (isset($existingMap[$nip])) {
+                    $ex = $existingMap[$nip];
+                    $bk_val = ($d['tpp_bk'] !== null) ? $d['tpp_bk'] : (float)$ex['tpp_bk'];
+                    $kk_val = ($d['tpp_kk'] !== null) ? $d['tpp_kk'] : (float)$ex['tpp_kk'];
+                    $wke_val = !empty($d['wke']) && $d['wke'] !== '0' ? (string)$d['wke'] : (string)($ex['wke'] ?? '0');
+
+                    $updateBatch[] = [
+                        'id'               => $ex['id'],
+                        'id_opd'           => $actual_opd,
+                        'nama_pegawai'     => $nama_fix,
+                        'wke'              => $wke_val,
+                        'predikat_kinerja' => $d['predikat'],
+                        'persen_kinerja'   => $d['persen_kinerja'],
+                        'tpp_bk'           => $bk_val,
+                        'tpp_kk'           => $kk_val,
+                        'updated_at'       => $now
+                    ];
+                } else {
+                    $bk_val = ($d['tpp_bk'] !== null) ? $d['tpp_bk'] : 0.00;
+                    $kk_val = ($d['tpp_kk'] !== null) ? $d['tpp_kk'] : 0.00;
+                    $wke_val = !empty($d['wke']) ? (string)$d['wke'] : '0';
+
+                    $insertBatch[] = [
+                        'id_opd'           => $actual_opd,
+                        'nip'              => $nip,
+                        'nama_pegawai'     => $nama_fix,
+                        'bulan'            => $bulan,
+                        'tahun'            => $tahun,
+                        'wke'              => $wke_val,
+                        'predikat_kinerja' => $d['predikat'],
+                        'persen_kinerja'   => $d['persen_kinerja'],
+                        'tpp_bk'           => $bk_val,
+                        'tpp_kk'           => $kk_val,
+                        'created_at'       => $now,
+                        'updated_at'       => $now
+                    ];
+                }
+            }
+
+            // Eksekusi batch per 500 baris
+            if (!empty($insertBatch)) {
+                foreach (array_chunk($insertBatch, 500) as $chunk) {
+                    $this->db->table('tpp_ekin_data')->insertBatch($chunk);
+                }
+            }
+            if (!empty($updateBatch)) {
+                foreach (array_chunk($updateBatch, 500) as $chunk) {
+                    $this->db->table('tpp_ekin_data')->updateBatch($chunk, 'id');
+                }
+            }
+
+            $totalAffected = count($insertBatch) + count($updateBatch);
+            $namaBulanLabel = $bulanNamesIndo[$bulan] ?? $bulan;
+
+            $msg = "Berhasil memproses E-Kinerja Periode {$namaBulanLabel} {$tahun}! " .
+                   "Total: {$totalAffected} pegawai diperbarui (Baru: " . count($insertBatch) . ", Diperbarui: " . count($updateBatch) . ").";
+
+            if ($isBknSkp) {
+                $msg = "Berhasil memproses Laporan Penilaian SKP BKN Periode {$namaBulanLabel} {$tahun}! " .
+                       "Total: {$totalAffected} pegawai disinkronkan (Predikat Kinerja dikonversi otomatis ke % Beban Kerja TPP).";
             }
 
             return $this->response->setJSON([
                 'status'  => 'success',
-                'message' => "Berhasil memproses data E-Kinerja! Total: " . count($parsedData) . " pegawai (Baru: $inserted, Diperbarui: $updated)."
+                'message' => $msg,
+                'bulan'   => $bulan,
+                'tahun'   => $tahun
             ]);
 
         } catch (\Exception $e) {
@@ -913,10 +1133,10 @@ class TppDinamis extends BaseController
         $bulan = (int)$request->getPost('bulan');
         $tahun = (int)$request->getPost('tahun');
         $wke = $request->getPost('wke');
-        $persen_kinerja = (float)$request->getPost('persen_kinerja');
+        $persen_kinerja = $request->getPost('persen_kinerja');
         $tpp_bk = (float)$request->getPost('tpp_bk');
         $tpp_kk = (float)$request->getPost('tpp_kk');
-        $predikat = $request->getPost('predikat_kinerja') ?: 'BAIK';
+        $predikatRaw = $request->getPost('predikat_kinerja') ?: 'BAIK';
 
         if (empty($nip) || empty($bulan) || empty($tahun)) {
             return $this->response->setJSON(['status' => 'error', 'message' => 'Parameter tidak lengkap.']);
@@ -925,6 +1145,14 @@ class TppDinamis extends BaseController
         $peg = $this->db->table('pegawai')->where('nip', $nip)->get()->getRow();
         if (!$peg) {
             return $this->response->setJSON(['status' => 'error', 'message' => 'Pegawai tidak ditemukan.']);
+        }
+
+        $predikat = self::format_predikat_label($predikatRaw);
+
+        if ($persen_kinerja !== null && $persen_kinerja !== '') {
+            $persen_kinerja = (float)$persen_kinerja;
+        } else {
+            $persen_kinerja = self::konversi_predikat_ke_persen($predikatRaw);
         }
 
         $existing = $this->db->table('tpp_ekin_data')
