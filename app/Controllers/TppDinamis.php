@@ -511,13 +511,20 @@ class TppDinamis extends BaseController
 
         $data_pegawai = [];
         $summary = [
-            'total_pegawai'      => 0,
-            'total_tpp_kotor'    => 0,
-            'total_bpjs'         => 0,
-            'total_pph21'        => 0,
-            'total_tpp_bersih'   => 0,
-            'total_kinerja'      => 0,
-            'total_disiplin'     => 0
+            'total_pegawai'              => 0,
+            'total_tpp_bk'               => 0,
+            'total_tpp_kk'               => 0,
+            'total_jumlah_tpp'           => 0,
+            'total_bpjs'                 => 0,
+            'total_tpp_stlh_bpjs'        => 0,
+            'total_tpp_60'               => 0,
+            'total_kinerja'              => 0,
+            'total_tpp_40'               => 0,
+            'total_nominal_pot_disiplin' => 0,
+            'total_disiplin'             => 0,
+            'total_tpp_kotor'            => 0,
+            'total_pph21'                => 0,
+            'total_tpp_bersih'           => 0
         ];
 
         if ($id_opd) {
@@ -628,12 +635,19 @@ class TppDinamis extends BaseController
                 ];
 
                 $summary['total_pegawai']++;
-                $summary['total_tpp_kotor']    += $tpp_kotor;
-                $summary['total_bpjs']         += $bpjs_1pct;
-                $summary['total_pph21']        += $nominal_pph21;
-                $summary['total_tpp_bersih']   += $tpp_bersih;
-                $summary['total_kinerja']      += $jumlah_tpp_kinerja;
-                $summary['total_disiplin']     += $jumlah_tpp_disiplin;
+                $summary['total_tpp_bk']               += $tpp_bk;
+                $summary['total_tpp_kk']               += $tpp_kk;
+                $summary['total_jumlah_tpp']           += $jumlah_tpp;
+                $summary['total_bpjs']                 += $bpjs_1pct;
+                $summary['total_tpp_stlh_bpjs']        += $tpp_setelah_bpjs;
+                $summary['total_tpp_60']               += $tpp_60;
+                $summary['total_kinerja']              += $jumlah_tpp_kinerja;
+                $summary['total_tpp_40']               += $tpp_40;
+                $summary['total_nominal_pot_disiplin'] += $nominal_pengurangan_disiplin;
+                $summary['total_disiplin']             += $jumlah_tpp_disiplin;
+                $summary['total_tpp_kotor']            += $tpp_kotor;
+                $summary['total_pph21']                += $nominal_pph21;
+                $summary['total_tpp_bersih']           += $tpp_bersih;
 
                 $data_pegawai[] = $row;
             }
@@ -2322,6 +2336,40 @@ class TppDinamis extends BaseController
 
             $row += 2;
             $no++;
+        }
+
+        // Baris Total Keseluruhan di Excel
+        $firstDataRow = 12;
+        $lastDataRow = $row - 1;
+        if ($lastDataRow >= $firstDataRow) {
+            $sheet->setCellValue("A$row", "TOTAL KESELURUHAN");
+            $sheet->mergeCells("A$row:E$row");
+            $sheet->getStyle("A$row")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
+
+            $sheet->setCellValue("F$row", "=SUM(F$firstDataRow:F$lastDataRow)");
+            $sheet->setCellValue("G$row", "=SUM(G$firstDataRow:G$lastDataRow)");
+            $sheet->setCellValue("H$row", "=SUM(H$firstDataRow:H$lastDataRow)");
+            $sheet->setCellValue("I$row", "=SUM(I$firstDataRow:I$lastDataRow)");
+            $sheet->setCellValue("J$row", "=SUM(J$firstDataRow:J$lastDataRow)");
+            $sheet->setCellValue("K$row", "=SUM(K$firstDataRow:K$lastDataRow)");
+            $sheet->setCellValue("L$row", "-");
+            $sheet->setCellValue("M$row", "=SUM(M$firstDataRow:M$lastDataRow)");
+            $sheet->setCellValue("N$row", "=SUM(N$firstDataRow:N$lastDataRow)");
+            $sheet->setCellValue("O$row", "=SUM(O$firstDataRow:O$lastDataRow)");
+            $sheet->setCellValue("P$row", "=SUM(P$firstDataRow:P$lastDataRow)");
+            $sheet->setCellValue("Q$row", "=SUM(Q$firstDataRow:Q$lastDataRow)");
+            $sheet->setCellValue("R$row", "-");
+            $sheet->setCellValue("S$row", "=SUM(S$firstDataRow:S$lastDataRow)");
+            $sheet->setCellValue("T$row", "=SUM(T$firstDataRow:T$lastDataRow)");
+            $sheet->setCellValue("U$row", "");
+
+            $sheet->getStyle("A$row:U$row")->getFont()->setBold(true);
+            $sheet->getStyle("A$row:U$row")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+            $sheet->getStyle("F$row:K$row")->getNumberFormat()->setFormatCode('#,##0');
+            $sheet->getStyle("M$row:Q$row")->getNumberFormat()->setFormatCode('#,##0');
+            $sheet->getStyle("S$row:T$row")->getNumberFormat()->setFormatCode('#,##0');
+            $sheet->getStyle("L$row")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            $sheet->getStyle("R$row")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         }
 
         foreach (range('A', 'U') as $col) {

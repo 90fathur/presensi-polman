@@ -350,23 +350,23 @@
                         <?php endforeach; ?>
                     </tbody>
                     <tfoot class="bg-light fw-bold text-center" style="font-size: 0.72rem;">
-                        <tr>
-                            <td colspan="5" class="text-end pe-3">TOTAL KESELURUHAN:</td>
-                            <td class="text-end pe-2">-</td>
-                            <td class="text-end pe-2">-</td>
-                            <td class="text-end pe-2">-</td>
-                            <td class="text-end pe-2 text-muted">Rp <?= number_format($summary['total_bpjs'], 0, ',', '.') ?></td>
-                            <td class="text-end pe-2">-</td>
-                            <td class="text-end pe-2">-</td>
-                            <td class="text-center">-</td>
-                            <td class="text-end pe-2 text-primary">Rp <?= number_format($summary['total_kinerja'], 0, ',', '.') ?></td>
-                            <td class="text-end pe-2">-</td>
-                            <td class="text-center">-</td>
-                            <td class="text-end pe-2 text-success">Rp <?= number_format($summary['total_disiplin'], 0, ',', '.') ?></td>
-                            <td class="text-end pe-2 text-dark bg-secondary bg-opacity-25">Rp <?= number_format($summary['total_tpp_kotor'], 0, ',', '.') ?></td>
-                            <td class="text-center">-</td>
-                            <td class="text-end pe-2 text-danger">Rp <?= number_format($summary['total_pph21'], 0, ',', '.') ?></td>
-                            <td class="text-end pe-2 text-dark bg-warning bg-opacity-25 fs-6">Rp <?= number_format($summary['total_tpp_bersih'], 0, ',', '.') ?></td>
+                        <tr class="align-middle">
+                            <td colspan="5" class="text-end pe-3 bg-white">TOTAL KESELURUHAN:</td>
+                            <td class="text-end pe-2">Rp <?= number_format($summary['total_tpp_bk'] ?? 0, 0, ',', '.') ?></td>
+                            <td class="text-end pe-2">Rp <?= number_format($summary['total_tpp_kk'] ?? 0, 0, ',', '.') ?></td>
+                            <td class="text-end pe-2 fw-semibold">Rp <?= number_format($summary['total_jumlah_tpp'] ?? 0, 0, ',', '.') ?></td>
+                            <td class="text-end pe-2 text-muted">Rp <?= number_format($summary['total_bpjs'] ?? 0, 0, ',', '.') ?></td>
+                            <td class="text-end pe-2 fw-semibold bg-light">Rp <?= number_format($summary['total_tpp_stlh_bpjs'] ?? 0, 0, ',', '.') ?></td>
+                            <td class="text-end pe-2 bg-kinerja text-primary">Rp <?= number_format($summary['total_tpp_60'] ?? 0, 0, ',', '.') ?></td>
+                            <td class="text-center bg-kinerja">-</td>
+                            <td class="text-end pe-2 bg-kinerja text-primary fw-bold">Rp <?= number_format($summary['total_kinerja'] ?? 0, 0, ',', '.') ?></td>
+                            <td class="text-end pe-2 bg-disiplin text-success fw-bold">Rp <?= number_format($summary['total_tpp_40'] ?? 0, 0, ',', '.') ?></td>
+                            <td class="text-center bg-disiplin small text-danger" title="Total Nominal Pengurangan">-Rp <?= number_format($summary['total_nominal_pot_disiplin'] ?? 0, 0, ',', '.') ?></td>
+                            <td class="text-end pe-2 bg-disiplin text-success fw-bold">Rp <?= number_format($summary['total_disiplin'] ?? 0, 0, ',', '.') ?></td>
+                            <td class="text-end pe-2 text-dark bg-secondary bg-opacity-25 fw-bold">Rp <?= number_format($summary['total_tpp_kotor'] ?? 0, 0, ',', '.') ?></td>
+                            <td class="text-center bg-potongan">-</td>
+                            <td class="text-end pe-2 bg-potongan text-danger fw-bold">Rp <?= number_format($summary['total_pph21'] ?? 0, 0, ',', '.') ?></td>
+                            <td class="text-end pe-2 text-dark bg-bersih fs-6">Rp <?= number_format($summary['total_tpp_bersih'] ?? 0, 0, ',', '.') ?></td>
                             <td></td>
                         </tr>
                     </tfoot>

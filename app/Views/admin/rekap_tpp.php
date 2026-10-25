@@ -224,8 +224,29 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <?php $no = 1;
-                    foreach ($pegawai as $p): ?>
+                    <?php 
+                    $no = 1;
+                    $sum_hk = 0;
+                    $sum_p1 = 0; $sum_p2 = 0; $sum_p3 = 0; $sum_p4 = 0;
+                    $sum_pc1 = 0; $sum_pc2 = 0; $sum_pc3 = 0; $sum_pc4 = 0;
+                    $sum_tdk = 0; $sum_ta = 0; $sum_i = 0; $sum_a = 0;
+                    $sum_tot_persen = 0;
+                    foreach ($pegawai as $p): 
+                        $sum_hk += (int)($p['hari_kerja'] ?? 0);
+                        $sum_p1 += (int)($p['p1'] ?? 0);
+                        $sum_p2 += (int)($p['p2'] ?? 0);
+                        $sum_p3 += (int)($p['p3'] ?? 0);
+                        $sum_p4 += (int)($p['p4'] ?? 0);
+                        $sum_pc1 += (int)($p['pc1'] ?? 0);
+                        $sum_pc2 += (int)($p['pc2'] ?? 0);
+                        $sum_pc3 += (int)($p['pc3'] ?? 0);
+                        $sum_pc4 += (int)($p['pc4'] ?? 0);
+                        $sum_tdk += (int)($p['tdk'] ?? 0);
+                        $sum_ta += (int)($p['ta'] ?? 0);
+                        $sum_i += (int)($p['i'] ?? 0);
+                        $sum_a += (int)($p['a'] ?? 0);
+                        $sum_tot_persen += (float)($p['total_persen'] ?? 0);
+                    ?>
                         <tr>
                             <td class="bg-light"><?= $no++ ?></td>
                             <td class="text-start ps-2">
@@ -270,6 +291,44 @@
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
+                <tfoot class="bg-light fw-bold text-center" style="font-size: 0.7rem;">
+                    <tr class="align-middle">
+                        <td colspan="4" class="text-end pe-3 bg-white">TOTAL KESELURUHAN:</td>
+                        <td class="text-success fw-bold"><?= $sum_hk ?></td>
+
+                        <td><?= $sum_p1 ?: '-' ?></td>
+                        <td><?= $sum_p2 ?: '-' ?></td>
+                        <td><?= $sum_p3 ?: '-' ?></td>
+                        <td><?= $sum_p4 ?: '-' ?></td>
+
+                        <td><?= $sum_pc1 ?: '-' ?></td>
+                        <td><?= $sum_pc2 ?: '-' ?></td>
+                        <td><?= $sum_pc3 ?: '-' ?></td>
+                        <td><?= $sum_pc4 ?: '-' ?></td>
+
+                        <td class="bg-info bg-opacity-10 fw-bold"><?= $sum_tdk ?: '-' ?></td>
+                        <td class="bg-primary bg-opacity-10 fw-bold"><?= $sum_ta ?: '-' ?></td>
+                        <td><?= $sum_i ?: '-' ?></td>
+                        <td><?= $sum_a ?: '-' ?></td>
+
+                        <td class="bg-light text-muted small"><?= ($sum_p1 > 0) ? ($sum_p1 * 0.5) : '-' ?></td>
+                        <td class="bg-light text-muted small"><?= ($sum_p2 > 0) ? ($sum_p2 * 1) : '-' ?></td>
+                        <td class="bg-light text-muted small"><?= ($sum_p3 > 0) ? ($sum_p3 * 1.25) : '-' ?></td>
+                        <td class="bg-light text-muted small"><?= ($sum_p4 > 0) ? ($sum_p4 * 1.5) : '-' ?></td>
+
+                        <td class="bg-light text-muted small"><?= ($sum_pc1 > 0) ? ($sum_pc1 * 0.5) : '-' ?></td>
+                        <td class="bg-light text-muted small"><?= ($sum_pc2 > 0) ? ($sum_pc2 * 1) : '-' ?></td>
+                        <td class="bg-light text-muted small"><?= ($sum_pc3 > 0) ? ($sum_pc3 * 1.25) : '-' ?></td>
+                        <td class="bg-light text-muted small"><?= ($sum_pc4 > 0) ? ($sum_pc4 * 1.5) : '-' ?></td>
+
+                        <td class="bg-light text-muted small fw-bold text-info"><?= ($sum_tdk > 0) ? ($sum_tdk * 0.5) : '-' ?></td>
+                        <td class="bg-light text-muted small fw-bold text-primary"><?= ($sum_ta > 0) ? ($sum_ta * 2) : '-' ?></td>
+                        <td class="bg-light text-muted small">-</td>
+                        <td class="bg-light text-muted small text-danger fw-bold"><?= ($sum_a > 0) ? ($sum_a * 3) : '-' ?></td>
+
+                        <td class="fw-bold text-white bg-danger"><?= number_format($sum_tot_persen, 1) ?>%</td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
         <div class="card-footer bg-white p-4 border-top">
