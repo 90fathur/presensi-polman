@@ -73,6 +73,14 @@ $routes->group('', ['filter' => 'authFilter'], function ($routes) {
     $routes->get('tpp_dinamis/download_template_pagu', 'TppDinamis::download_template_pagu');
     $routes->get('tpp_dinamis/setting_opd', 'TppDinamis::setting_opd');
     $routes->post('tpp_dinamis/toggle_opd', 'TppDinamis::toggle_opd');
+
+    // --- WORKFLOW REKOMENDASI & PENCAIRAN TPP (OPD -> BKPSDM -> BPKAD) ---
+    $routes->post('tpp_dinamis/ajukan_rekomendasi', 'TppDinamis::ajukan_rekomendasi');
+    $routes->get('tpp_dinamis/verval', 'TppDinamis::verval');
+    $routes->post('tpp_dinamis/proses_rekomendasi', 'TppDinamis::proses_rekomendasi');
+    $routes->get('tpp_dinamis/bpkad', 'TppDinamis::bpkad');
+    $routes->post('tpp_dinamis/proses_pencairan', 'TppDinamis::proses_pencairan');
+    $routes->get('tpp_dinamis/cetak_lembar_pencairan/(:num)', 'TppDinamis::cetak_lembar_pencairan/$1');
     // $routes->get('rekap/manual', 'Rekap::manual');
     // $routes->post('rekap/simpan_manual', 'Rekap::simpan_manual');
     $routes->get('rekap/harian', 'Rekap::harian');   // <--- TAMBAHKAN INI (Rekap Harian Baru)

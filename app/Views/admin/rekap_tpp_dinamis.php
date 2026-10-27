@@ -112,7 +112,7 @@
         <div class="card-body p-3">
             <form action="<?= base_url('tpp_dinamis') ?>" method="GET" class="row g-2 align-items-end">
 
-                <?php if (in_array($level, ['kabupaten', 'Superadmin'])): ?>
+                <?php if (in_array($level, ['kabupaten', 'Superadmin', 'Administrator', 'bpkad'])): ?>
                     <div class="col-md-4">
                         <label class="small fw-bold text-muted mb-1">
                             Unit Kerja / OPD (Prototype Aktif)
@@ -177,7 +177,140 @@
         </div>
     </div>
 
-    <!-- SUMMARY CARDS -->
+    <!-- ================================================================= -->
+    <!-- WORKFLOW STATUS BANNER: OPD -> BKPSDM -> BPKAD -->
+    <!-- ================================================================= -->
+    <?php 
+    $status_code = $pengajuan['status'] ?? 'draft';
+    $is_locked = in_array($status_code, ['diajukan', 'rekomendasi_bkpsdm', 'dicairkan']);
+    ?>
+    <div class="card shadow-sm border-0 mb-4 rounded-3 overflow-hidden">
+        <div class="card-header bg-white py-3 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 38px; height: 38px; background: rgba(13, 110, 253, 0.1);">
+                    <i class="fas fa-clipboard-check text-primary fs-5"></i>
+                </div>
+                <div>
+                    <h6 class="fw-bold mb-0 text-dark">Alur Rekomendasi & Pencairan TPP</h6>
+                    <small class="text-muted">Status usulan OPD ke BKPSDM hingga pencairan oleh BPKAD</small>
+                </div>
+            </div>
+            <div>
+                <?php if ($status_code == 'draft'): ?>
+                    <span class="badge bg-secondary px-3 py-2 rounded-pill fw-semibold shadow-xs">
+                        <i class="fas fa-edit me-1"></i> Draf / Belum Diajukan
+                    </span>
+                <?php elseif ($status_code == 'diajukan'): ?>
+                    <span class="badge bg-warning text-dark px-3 py-2 rounded-pill fw-bold shadow-xs">
+                        <i class="fas fa-clock me-1"></i> Diajukan ke BKPSDM (Menunggu Verval)
+                    </span>
+                <?php elseif ($status_code == 'rekomendasi_bkpsdm'): ?>
+                    <span class="badge bg-info text-white px-3 py-2 rounded-pill fw-bold shadow-xs">
+                        <i class="fas fa-stamp me-1"></i> Direkomendasikan BKPSDM (Diteruskan ke BPKAD)
+                    </span>
+                <?php elseif ($status_code == 'ditolak_bkpsdm'): ?>
+                    <span class="badge bg-danger px-3 py-2 rounded-pill fw-bold shadow-xs">
+                        <i class="fas fa-undo-alt me-1"></i> Dikembalikan oleh BKPSDM (Perlu Perbaikan)
+                    </span>
+                <?php elseif ($status_code == 'dicairkan'): ?>
+                    <span class="badge bg-success px-3 py-2 rounded-pill fw-bold shadow-xs">
+                        <i class="fas fa-check-circle me-1"></i> Telah Dicairkan oleh BPKAD
+                    </span>
+                <?php endif; ?>
+            </div>
+        </div>
+        <div class="card-body p-3 bg-light-subtle">
+            <div class="row align-items-center g-3">
+                <div class="col-lg-8">
+                    <?php if ($status_code == 'draft'): ?>
+                        <p class="small mb-1 text-dark">
+                            <i class="fas fa-info-circle text-primary me-1"></i>
+                            Silakan lakukan <b>verifikasi data presensi (40%)</b> dan <b>capaian kinerja (60%)</b> pegawai OPD Anda. Setelah data akurat, klik tombol <b>Kirim Usulan ke BKPSDM</b> untuk diproses dan mendapatkan surat rekomendasi pencairan.
+                        </p>
+                    <?php elseif ($status_code == 'diajukan'): ?>
+                        <p class="small mb-1 text-dark">
+                            <i class="fas fa-paper-plane text-warning me-1"></i>
+                            Usulan telah diajukan oleh <b><?= esc($pengajuan['diajukan_oleh']) ?></b> pada <b><?= date('d M Y H:i', strtotime($pengajuan['tgl_diajukan'])) ?></b>.
+                            Data sedang dalam proses verifikasi & validasi (Verval) oleh tim BKPSDM.
+                        </p>
+                        <?php if (!empty($pengajuan['catatan_opd'])): ?>
+                            <div class="small text-muted fst-italic">"Catatan OPD: <?= esc($pengajuan['catatan_opd']) ?>"</div>
+                        <?php endif; ?>
+                    <?php elseif ($status_code == 'rekomendasi_bkpsdm'): ?>
+                        <p class="small mb-1 text-dark">
+                            <i class="fas fa-stamp text-info me-1"></i>
+                            <b>Rekomendasi Terbit!</b> Surat Rekomendasi No: <span class="badge bg-primary text-white"><?= esc($pengajuan['no_rekomendasi']) ?></span>
+                            diterbitkan oleh <b><?= esc($pengajuan['verval_oleh_bkpsdm']) ?></b> pada <?= date('d M Y H:i', strtotime($pengajuan['tgl_verval_bkpsdm'])) ?>.
+                            Daftar telah diteruskan ke BPKAD untuk proses penerbitan SP2D.
+                        </p>
+                        <?php if (!empty($pengajuan['catatan_bkpsdm'])): ?>
+                            <div class="small text-muted fst-italic">"Catatan BKPSDM: <?= esc($pengajuan['catatan_bkpsdm']) ?>"</div>
+                        <?php endif; ?>
+                    <?php elseif ($status_code == 'ditolak_bkpsdm'): ?>
+                        <div class="p-2 rounded bg-danger-subtle border border-danger-subtle mb-1">
+                            <span class="small fw-bold text-danger"><i class="fas fa-exclamation-circle me-1"></i> Catatan Perbaikan BKPSDM:</span>
+                            <div class="small text-dark mt-1"><?= nl2br(esc($pengajuan['catatan_bkpsdm'])) ?></div>
+                        </div>
+                        <small class="text-muted">Silakan perbaiki data presensi atau pagu/kinerja ASN, kemudian klik tombol <b>Ajukan Ulang ke BKPSDM</b>.</small>
+                    <?php elseif ($status_code == 'dicairkan'): ?>
+                        <p class="small mb-1 text-dark">
+                            <i class="fas fa-money-check-alt text-success me-1"></i>
+                            <b>Dana TPP Berhasil Dicairkan!</b> No. SP2D: <span class="badge bg-success"><?= esc($pengajuan['no_sp2d']) ?></span>
+                            diproses oleh <b><?= esc($pengajuan['dicairkan_oleh_bpkad']) ?></b> pada <?= date('d M Y', strtotime($pengajuan['tgl_cair_bpkad'])) ?>.
+                        </p>
+                    <?php endif; ?>
+                </div>
+
+                <div class="col-lg-4 text-lg-end">
+                    <!-- AKSI SESUAI ROLE & STATUS -->
+                    
+                    <!-- 1. Tombol untuk Admin OPD -->
+                    <?php if (!in_array($level, ['Superadmin', 'kabupaten', 'Administrator', 'bpkad']) || (session()->get('id_opd') == $selected_opd && in_array($status_code, ['draft', 'ditolak_bkpsdm']))): ?>
+                        <?php if (in_array($status_code, ['draft', 'ditolak_bkpsdm'])): ?>
+                            <button type="button" class="btn btn-primary btn-sm rounded-pill px-4 shadow-sm fw-bold" data-bs-toggle="modal" data-bs-target="#modalAjukanBkpsdm">
+                                <i class="fas fa-paper-plane me-1"></i> <?= ($status_code == 'ditolak_bkpsdm') ? 'Ajukan Ulang ke BKPSDM' : 'Kirim Usulan ke BKPSDM' ?>
+                            </button>
+                        <?php else: ?>
+                            <span class="badge bg-light text-muted border py-2 px-3">
+                                <i class="fas fa-lock me-1"></i> Data Terkunci (Sedang Diproses)
+                            </span>
+                        <?php endif; ?>
+                    <?php endif; ?>
+
+                    <!-- 2. Tombol untuk BKPSDM (Admin Kabupaten) -->
+                    <?php if (in_array($level, ['Superadmin', 'kabupaten', 'Administrator'])): ?>
+                        <?php if ($status_code == 'diajukan'): ?>
+                            <div class="d-flex gap-2 justify-content-lg-end flex-wrap">
+                                <button type="button" class="btn btn-success btn-sm rounded-pill px-3 shadow-sm fw-semibold" data-bs-toggle="modal" data-bs-target="#modalBeriRekomendasi">
+                                    <i class="fas fa-stamp me-1"></i> Beri Rekomendasi (Ke BPKAD)
+                                </button>
+                                <button type="button" class="btn btn-outline-danger btn-sm rounded-pill px-3 shadow-xs" data-bs-toggle="modal" data-bs-target="#modalTolakUsulan">
+                                    <i class="fas fa-times me-1"></i> Kembalikan
+                                </button>
+                            </div>
+                        <?php elseif ($status_code == 'rekomendasi_bkpsdm' || $status_code == 'dicairkan'): ?>
+                            <a href="<?= base_url('tpp_dinamis/cetak_lembar_pencairan/' . ($pengajuan['id'] ?? 0)) ?>" target="_blank" class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-xs">
+                                <i class="fas fa-print me-1"></i> Cetak Lembar Rekomendasi
+                            </a>
+                        <?php endif; ?>
+                    <?php endif; ?>
+
+                    <!-- 3. Tombol untuk BPKAD -->
+                    <?php if (in_array($level, ['bpkad', 'Superadmin', 'Administrator'])): ?>
+                        <?php if ($status_code == 'rekomendasi_bkpsdm'): ?>
+                            <button type="button" class="btn btn-warning text-dark btn-sm rounded-pill px-3 shadow-sm fw-bold" data-bs-toggle="modal" data-bs-target="#modalCairkanBpkad">
+                                <i class="fas fa-money-check-alt me-1"></i> Proses Pencairan (Input SP2D)
+                            </button>
+                        <?php elseif ($status_code == 'dicairkan'): ?>
+                            <a href="<?= base_url('tpp_dinamis/cetak_lembar_pencairan/' . ($pengajuan['id'] ?? 0)) ?>" target="_blank" class="btn btn-outline-success btn-sm rounded-pill px-3 shadow-xs">
+                                <i class="fas fa-print me-1"></i> Cetak Bukti Pencairan
+                            </a>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
     <?php if (!empty($pegawai)): ?>
         <div class="row g-3 mb-4">
             <div class="col-6 col-md-4 col-xl-2">
@@ -541,6 +674,213 @@
                     <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Batal</button>
                     <button type="submit" id="btnSubmitEdit" class="btn btn-success btn-sm rounded-pill px-4">
                         <i class="fas fa-save me-1"></i> Simpan Perubahan
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL-MODAL WORKFLOW ALUR REKOMENDASI & PENCAIRAN TPP -->
+<!-- ========================================================================= -->
+
+<!-- 1. MODAL AJUKAN REKOMENDASI KE BKPSDM (ADMIN OPD) -->
+<div class="modal fade" id="modalAjukanBkpsdm" tabindex="-1" aria-labelledby="modalAjukanBkpsdmLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white py-3">
+                <h6 class="modal-title fw-bold" id="modalAjukanBkpsdmLabel">
+                    <i class="fas fa-paper-plane me-2"></i> Ajukan Rekomendasi TPP ke BKPSDM
+                </h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="<?= base_url('tpp_dinamis/ajukan_rekomendasi') ?>" method="POST">
+                <?= csrf_field() ?>
+                <div class="modal-body p-4">
+                    <input type="hidden" name="id_opd" value="<?= $selected_opd ?>">
+                    <input type="hidden" name="bulan" value="<?= $bulan ?>">
+                    <input type="hidden" name="tahun" value="<?= $tahun ?>">
+
+                    <div class="p-3 bg-light rounded-3 mb-3 border">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="small text-muted">Unit Kerja / OPD:</span>
+                            <span class="small fw-bold text-dark text-end"><?= esc($nama_opd) ?></span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="small text-muted">Periode:</span>
+                            <span class="small fw-bold text-dark"><?= $bln_indo[$bulan] ?? $bulan ?> <?= $tahun ?></span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="small text-muted">Total ASN Penerima:</span>
+                            <span class="small fw-bold text-primary"><?= number_format($summary['total_pegawai']) ?> Pegawai</span>
+                        </div>
+                        <div class="d-flex justify-content-between border-top pt-2 mt-2">
+                            <span class="small fw-bold text-dark">Total TPP Bersih:</span>
+                            <span class="small fw-bold text-success fs-6">Rp <?= number_format($summary['total_tpp_bersih'], 0, ',', '.') ?></span>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning border-0 small py-2 mb-3">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Pastikan Anda telah memeriksa kebenaran jam kehadiran, dispensasi, izin, serta capaian E-Kinerja seluruh ASN. Data akan dikunci selama masa evaluasi BKPSDM.
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted mb-1">Catatan Pengantar OPD (Opsional)</label>
+                        <textarea name="catatan_opd" class="form-control form-control-sm" rows="3" placeholder="Tambahkan catatan khusus untuk tim verifikator BKPSDM jika ada..."><?= esc($pengajuan['catatan_opd'] ?? '') ?></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-primary btn-sm rounded-pill px-4 fw-bold">
+                        <i class="fas fa-paper-plane me-1"></i> Kirim ke BKPSDM Sekarang
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 2. MODAL BERI REKOMENDASI BKPSDM & TERUSKAN KE BPKAD (ADMIN KABUPATEN) -->
+<div class="modal fade" id="modalBeriRekomendasi" tabindex="-1" aria-labelledby="modalBeriRekomendasiLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-success text-white py-3">
+                <h6 class="modal-title fw-bold" id="modalBeriRekomendasiLabel">
+                    <i class="fas fa-stamp me-2"></i> Terbitkan Rekomendasi & Teruskan ke BPKAD
+                </h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="<?= base_url('tpp_dinamis/proses_rekomendasi') ?>" method="POST">
+                <?= csrf_field() ?>
+                <input type="hidden" name="id_pengajuan" value="<?= $pengajuan['id'] ?? 0 ?>">
+                <input type="hidden" name="aksi" value="rekomendasi">
+
+                <div class="modal-body p-4">
+                    <div class="p-3 bg-light rounded-3 mb-3 border">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="small text-muted">OPD Pemohon:</span>
+                            <span class="small fw-bold text-dark text-end"><?= esc($nama_opd) ?></span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="small text-muted">Total ASN & Nominal:</span>
+                            <span class="small fw-bold text-success"><?= number_format($summary['total_pegawai']) ?> Orang / Rp <?= number_format($summary['total_tpp_bersih'], 0, ',', '.') ?></span>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted mb-1">Nomor Surat Rekomendasi BKPSDM <span class="text-danger">*</span></label>
+                        <input type="text" name="no_rekomendasi" class="form-control form-control-sm" placeholder="Contoh: 800/125/BKPSDM/<?= date('m/Y') ?>" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted mb-1">Catatan / Rekomendasi BKPSDM</label>
+                        <textarea name="catatan_bkpsdm" class="form-control form-control-sm" rows="3" placeholder="Catatan hasil verifikasi dan validasi berkas presensi..."></textarea>
+                    </div>
+
+                    <div class="alert alert-info border-0 small py-2 mb-0">
+                        <i class="fas fa-check-circle me-1"></i>
+                        Setelah diterbitkan, daftar TPP ini akan <b>langsung masuk ke antrean pencairan Admin BPKAD</b>.
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-success btn-sm rounded-pill px-4 fw-bold">
+                        <i class="fas fa-stamp me-1"></i> Terbitkan & Teruskan ke BPKAD
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 3. MODAL TOLAK / KEMBALIKAN KE OPD (ADMIN KABUPATEN) -->
+<div class="modal fade" id="modalTolakUsulan" tabindex="-1" aria-labelledby="modalTolakUsulanLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-danger text-white py-3">
+                <h6 class="modal-title fw-bold" id="modalTolakUsulanLabel">
+                    <i class="fas fa-undo-alt me-2"></i> Kembalikan Usulan TPP ke OPD
+                </h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="<?= base_url('tpp_dinamis/proses_rekomendasi') ?>" method="POST">
+                <?= csrf_field() ?>
+                <input type="hidden" name="id_pengajuan" value="<?= $pengajuan['id'] ?? 0 ?>">
+                <input type="hidden" name="aksi" value="tolak">
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted mb-1">Alasan Penolakan / Catatan Perbaikan <span class="text-danger">*</span></label>
+                        <textarea name="catatan_bkpsdm" class="form-control form-control-sm" rows="4" placeholder="Tuliskan secara jelas bagian absensi atau capaian kinerja ASN yang harus diperbaiki oleh OPD..." required></textarea>
+                    </div>
+
+                    <div class="alert alert-warning border-0 small py-2 mb-0">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        Status pengajuan OPD akan diubah menjadi <b>Dikembalikan</b> sehingga Admin OPD dapat melakukan perbaikan dan mengajukan ulang.
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-danger btn-sm rounded-pill px-4 fw-bold">
+                        <i class="fas fa-undo-alt me-1"></i> Kembalikan ke OPD
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 4. MODAL EKSEKUSI PENCAIRAN TPP (ADMIN BPKAD) -->
+<div class="modal fade" id="modalCairkanBpkad" tabindex="-1" aria-labelledby="modalCairkanBpkadLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-warning text-dark py-3">
+                <h6 class="modal-title fw-bold" id="modalCairkanBpkadLabel">
+                    <i class="fas fa-money-check-alt me-2"></i> Input SP2D & Konfirmasi Pencairan TPP
+                </h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="<?= base_url('tpp_dinamis/proses_pencairan') ?>" method="POST">
+                <?= csrf_field() ?>
+                <input type="hidden" name="id_pengajuan" value="<?= $pengajuan['id'] ?? 0 ?>">
+
+                <div class="modal-body p-4">
+                    <div class="p-3 bg-light rounded-3 mb-3 border">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="small text-muted">OPD Penerima:</span>
+                            <span class="small fw-bold text-dark text-end"><?= esc($nama_opd) ?></span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="small text-muted">No. Rekomendasi BKPSDM:</span>
+                            <span class="small fw-bold text-primary"><?= esc($pengajuan['no_rekomendasi'] ?? '-') ?></span>
+                        </div>
+                        <div class="d-flex justify-content-between border-top pt-2 mt-2">
+                            <span class="small fw-bold text-dark">Total Dicairkan:</span>
+                            <span class="small fw-bold text-success fs-6">Rp <?= number_format($summary['total_tpp_bersih'], 0, ',', '.') ?></span>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted mb-1">Nomor SP2D (Surat Perintah Pencairan Dana) <span class="text-danger">*</span></label>
+                        <input type="text" name="no_sp2d" class="form-control form-control-sm" placeholder="Contoh: 900/0124/SP2D-TPP/BPKAD/<?= date('Y') ?>" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted mb-1">Tanggal Pencairan / Tanggal SP2D <span class="text-danger">*</span></label>
+                        <input type="date" name="tgl_cair" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted mb-1">Catatan Pencairan BPKAD (Opsional)</label>
+                        <textarea name="catatan_bpkad" class="form-control form-control-sm" rows="2" placeholder="Catatan perbendaharaan / nomor register SPM..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-warning text-dark btn-sm rounded-pill px-4 fw-bold shadow-sm">
+                        <i class="fas fa-check-circle me-1"></i> Simpan & Konfirmasi Dicairkan
                     </button>
                 </div>
             </form>

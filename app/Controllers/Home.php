@@ -17,7 +17,7 @@ class Home extends BaseController
         $level = session()->get('level');
         $id_opd_admin = session()->get('id_opd');
         $tanggal_hari_ini = date('Y-m-d');
-        $akses_global = ['Superadmin', 'kabupaten', 'Administrator'];
+        $akses_global = ['Superadmin', 'kabupaten', 'Administrator', 'bpkad'];
         $hari_ini = date('Y-m-d');
 
         // --- 1. QUERY DATA ---
@@ -29,6 +29,8 @@ class Home extends BaseController
         if (!in_array($level, $akses_global)) {
             $builder->where('pegawai.id_opd', $id_opd_admin);
             $data['nama_kantor'] = session()->get('nama_opd') ?? 'Instansi Anda';
+        } elseif ($level === 'bpkad') {
+            $data['nama_kantor'] = "BPKAD Kab. Polewali Mandar";
         } else {
             $data['nama_kantor'] = "Kabupaten Polewali Mandar";
         }

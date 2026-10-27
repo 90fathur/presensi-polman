@@ -74,6 +74,59 @@ class TppDinamis extends BaseController
                     $this->db->query("ALTER TABLE `tpp_ekin_data` MODIFY `id_opd` INT(11) NOT NULL DEFAULT 0");
                 } catch (\Throwable $t) {}
             }
+
+            // [WORKFLOW TPP]: Update level ENUM pada tabel users agar mendukung 'bpkad'
+            try {
+                $this->db->query("ALTER TABLE users MODIFY COLUMN level ENUM('kabupaten','opd','pegawai','bpkad') NOT NULL DEFAULT 'opd'");
+            } catch (\Throwable $t) {}
+
+            // [WORKFLOW TPP]: Buat tabel tpp_pengajuan untuk siklus OPD -> BKPSDM -> BPKAD
+            if (!$this->db->tableExists('tpp_pengajuan')) {
+                $this->db->query("CREATE TABLE IF NOT EXISTS `tpp_pengajuan` (
+                    `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                    `id_opd` INT(11) NOT NULL,
+                    `bulan` INT(2) NOT NULL,
+                    `tahun` INT(4) NOT NULL,
+                    `jenis_tpp` VARCHAR(20) NOT NULL DEFAULT 'dinamis',
+                    `total_pegawai` INT NOT NULL DEFAULT 0,
+                    `total_tpp_kotor` DECIMAL(15,2) NOT NULL DEFAULT '0.00',
+                    `total_potongan` DECIMAL(15,2) NOT NULL DEFAULT '0.00',
+                    `total_tpp_bersih` DECIMAL(15,2) NOT NULL DEFAULT '0.00',
+                    `status` ENUM('draft','diajukan','rekomendasi_bkpsdm','ditolak_bkpsdm','dicairkan') NOT NULL DEFAULT 'draft',
+                    `tgl_diajukan` DATETIME NULL,
+                    `diajukan_oleh` VARCHAR(100) NULL,
+                    `catatan_opd` TEXT NULL,
+                    `tgl_verval_bkpsdm` DATETIME NULL,
+                    `verval_oleh_bkpsdm` VARCHAR(100) NULL,
+                    `no_rekomendasi` VARCHAR(100) NULL,
+                    `catatan_bkpsdm` TEXT NULL,
+                    `tgl_cair_bpkad` DATETIME NULL,
+                    `dicairkan_oleh_bpkad` VARCHAR(100) NULL,
+                    `no_sp2d` VARCHAR(100) NULL,
+                    `catatan_bpkad` TEXT NULL,
+                    `file_lampiran` VARCHAR(255) NULL,
+                    `created_at` DATETIME NULL,
+                    `updated_at` DATETIME NULL,
+                    PRIMARY KEY (`id`),
+                    UNIQUE KEY `idx_opd_periode_jenis` (`id_opd`, `bulan`, `tahun`, `jenis_tpp`),
+                    KEY `idx_status` (`status`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;");
+            }
+
+            // [WORKFLOW TPP]: Pastikan akun default BPKAD tersedia
+            try {
+                $checkBpkad = $this->db->table('users')->where('username', 'bpkad')->get()->getRow();
+                if (!$checkBpkad) {
+                    $this->db->table('users')->insert([
+                        'username'   => 'bpkad',
+                        'password'   => password_hash('bpkad123', PASSWORD_BCRYPT),
+                        'nama_user'  => 'BPKAD Kab. Polewali Mandar',
+                        'id_opd'     => 0,
+                        'level'      => 'bpkad',
+                        'created_at' => date('Y-m-d H:i:s')
+                    ]);
+                }
+            } catch (\Throwable $t) {}
         } catch (\Throwable $e) {
             log_message('error', 'TppDinamis ensure_schema error: ' . $e->getMessage());
         }
@@ -490,13 +543,13 @@ class TppDinamis extends BaseController
 
         // Tentukan OPD yang dipilih
         $id_opd = $request->getGet('id_opd');
-        if (!in_array($level, ['Superadmin', 'kabupaten'])) {
+        if (!in_array($level, ['Superadmin', 'kabupaten', 'Administrator', 'bpkad'])) {
             $id_opd = $id_opd_admin;
         }
 
-        // Cek apakah OPD admin aktif prototipenya jika bukan kabupaten
+        // Cek apakah OPD admin aktif prototipenya jika bukan kabupaten / bpkad
         $is_opd_prototype_active = true;
-        if (!in_array($level, ['Superadmin', 'kabupaten'])) {
+        if (!in_array($level, ['Superadmin', 'kabupaten', 'Administrator', 'bpkad'])) {
             $checkMyOpd = $this->db->table('opd')->where('id_opd', $id_opd_admin)->get()->getRow();
             $is_opd_prototype_active = !empty($checkMyOpd->tpp_dinamis_aktif);
         }
@@ -653,6 +706,17 @@ class TppDinamis extends BaseController
             }
         }
 
+        // [WORKFLOW TPP]: Ambil status pengajuan rekomendasi & pencairan TPP untuk OPD & Periode ini
+        $pengajuan = null;
+        if ($id_opd) {
+            $pengajuan = $this->db->table('tpp_pengajuan')
+                ->where('id_opd', $id_opd)
+                ->where('bulan', $bulan)
+                ->where('tahun', $tahun)
+                ->where('jenis_tpp', 'dinamis')
+                ->get()->getRowArray();
+        }
+
         return view('admin/rekap_tpp_dinamis', [
             'pegawai'                 => $data_pegawai,
             'summary'                 => $summary,
@@ -664,7 +728,8 @@ class TppDinamis extends BaseController
             'bulan'                   => $bulan,
             'tahun'                   => $tahun,
             'level'                   => $level,
-            'is_opd_prototype_active' => $is_opd_prototype_active
+            'is_opd_prototype_active' => $is_opd_prototype_active,
+            'pengajuan'               => $pengajuan
         ]);
     }
 
@@ -2385,5 +2450,377 @@ class TppDinamis extends BaseController
         $writer = new Xlsx($spreadsheet);
         $writer->save('php://output');
         exit;
+    }
+
+    // =========================================================================
+    // WORKFLOW REKOMENDASI & PENCAIRAN TPP (OPD -> BKPSDM -> BPKAD)
+    // =========================================================================
+
+    /**
+     * Admin OPD: Mengajukan Rekap TPP ke BKPSDM untuk diverifikasi & diterbitkan rekomendasi
+     */
+    public function ajukan_rekomendasi()
+    {
+        $session = session();
+        $level = $session->get('level');
+        $id_opd_session = $session->get('id_opd');
+        $nama_user = $session->get('nama_user') ?? $session->get('username') ?? 'Admin OPD';
+
+        $id_opd = (int)$this->request->getPost('id_opd');
+        $bulan = (int)$this->request->getPost('bulan');
+        $tahun = (int)$this->request->getPost('tahun');
+        $catatan_opd = trim((string)$this->request->getPost('catatan_opd'));
+
+        // Keamanan: Admin OPD hanya boleh mengajukan OPD miliknya sendiri
+        if (!in_array($level, ['Superadmin', 'kabupaten'])) {
+            $id_opd = (int)$id_opd_session;
+        }
+
+        if (empty($id_opd) || empty($bulan) || empty($tahun)) {
+            return redirect()->back()->with('error', 'Parameter pengajuan TPP tidak lengkap.');
+        }
+
+        // Cek data pengajuan saat ini
+        $existing = $this->db->table('tpp_pengajuan')
+            ->where('id_opd', $id_opd)
+            ->where('bulan', $bulan)
+            ->where('tahun', $tahun)
+            ->where('jenis_tpp', 'dinamis')
+            ->get()->getRowArray();
+
+        if ($existing && in_array($existing['status'], ['rekomendasi_bkpsdm', 'dicairkan'])) {
+            return redirect()->back()->with('error', 'TPP periode ini sudah diproses rekomendasi oleh BKPSDM / dicairkan dan tidak dapat diubah.');
+        }
+
+        // Hitung akumulasi data terbaru untuk snapshot pengajuan
+        $presensi_calc = $this->calculate_presensi_disiplin($id_opd, $bulan, $tahun);
+        $pegawai_raw = $presensi_calc['pegawai'];
+        $potongan_map = $presensi_calc['potongan_map'];
+        $nips = array_column($pegawai_raw, 'nip');
+        $resolved_ekin_pagu = $this->resolve_ekin_pagu($nips, $bulan, $tahun);
+        $pagu_map = $resolved_ekin_pagu['pagu_map'];
+        $ekin_map = $resolved_ekin_pagu['ekin_map'];
+
+        $total_pegawai = 0;
+        $total_tpp_kotor = 0;
+        $total_potongan = 0;
+        $total_tpp_bersih = 0;
+
+        foreach ($pegawai_raw as $pgw) {
+            $nip = trim((string)$pgw['nip']);
+            $pot = $potongan_map[$nip] ?? [];
+            $persen_pot_disiplin = (float)($pot['total_persen'] ?? 0);
+
+            $pagu_row = $pagu_map[$nip] ?? null;
+            $tpp_bk = $pagu_row ? (float)$pagu_row['tpp_bk'] : 0.0;
+            $tpp_kk = $pagu_row ? (float)$pagu_row['tpp_kk'] : 0.0;
+            $jumlah_tpp = $tpp_bk + $tpp_kk;
+            $bpjs_1pct = $jumlah_tpp * 0.01;
+            $tpp_setelah_bpjs = $jumlah_tpp - $bpjs_1pct;
+
+            $ekin_row = $ekin_map[$nip] ?? null;
+            $persen_kinerja = $ekin_row ? (float)$ekin_row['persen_kinerja'] : 100.0;
+            $faktor_kinerja = ($persen_kinerja > 1.0) ? ($persen_kinerja / 100.0) : $persen_kinerja;
+            $tpp_60 = $tpp_setelah_bpjs * 0.60;
+            $jumlah_tpp_kinerja = $tpp_60 * $faktor_kinerja;
+
+            $tpp_40 = $tpp_setelah_bpjs * 0.40;
+            $nominal_pengurangan_disiplin = $tpp_40 * ($persen_pot_disiplin / 100.0);
+            $jumlah_tpp_disiplin = max(0, $tpp_40 - $nominal_pengurangan_disiplin);
+
+            $kotor = $jumlah_tpp_kinerja + $jumlah_tpp_disiplin;
+            $tarif_pph = $this->get_tarif_pph($pgw['golongan'] ?? $pgw['pangkat'] ?? '');
+            $nominal_pph = $kotor * $tarif_pph;
+            $bersih = $kotor - $nominal_pph;
+
+            $total_pegawai++;
+            $total_tpp_kotor += $kotor;
+            $total_potongan += ($nominal_pengurangan_disiplin + $nominal_pph);
+            $total_tpp_bersih += $bersih;
+        }
+
+        $saveData = [
+            'id_opd'           => $id_opd,
+            'bulan'            => $bulan,
+            'tahun'            => $tahun,
+            'jenis_tpp'        => 'dinamis',
+            'total_pegawai'    => $total_pegawai,
+            'total_tpp_kotor'  => $total_tpp_kotor,
+            'total_potongan'   => $total_potongan,
+            'total_tpp_bersih' => $total_tpp_bersih,
+            'status'           => 'diajukan',
+            'tgl_diajukan'     => date('Y-m-d H:i:s'),
+            'diajukan_oleh'    => $nama_user,
+            'catatan_opd'      => $catatan_opd,
+            'updated_at'       => date('Y-m-d H:i:s')
+        ];
+
+        if ($existing) {
+            $this->db->table('tpp_pengajuan')->where('id', $existing['id'])->update($saveData);
+        } else {
+            $saveData['created_at'] = date('Y-m-d H:i:s');
+            $this->db->table('tpp_pengajuan')->insert($saveData);
+        }
+
+        return redirect()->to(base_url("tpp_dinamis?id_opd={$id_opd}&bulan={$bulan}&tahun={$tahun}"))
+            ->with('success', 'Usulan TPP berhasil dikirim ke BKPSDM untuk diverifikasi dan diterbitkan rekomendasi.');
+    }
+
+    /**
+     * BKPSDM: Halaman Verifikasi & Validasi (Verval) Rekomendasi TPP OPD
+     */
+    public function verval()
+    {
+        $session = session();
+        $level = $session->get('level');
+        if (!in_array($level, ['Superadmin', 'kabupaten', 'Administrator'])) {
+            return redirect()->to('/dashboard')->with('error', 'Akses khusus untuk BKPSDM / Admin Kabupaten.');
+        }
+
+        $request = \Config\Services::request();
+        $bulan = (int)($request->getGet('bulan') ?? date('m'));
+        $tahun = (int)($request->getGet('tahun') ?? date('Y'));
+        $status_filter = $request->getGet('status');
+
+        $builder = $this->db->table('tpp_pengajuan tp')
+            ->select('tp.*, opd.nama_opd')
+            ->join('opd', 'tp.id_opd = opd.id_opd', 'left')
+            ->where('tp.bulan', $bulan)
+            ->where('tp.tahun', $tahun)
+            ->where('tp.jenis_tpp', 'dinamis');
+
+        if (!empty($status_filter)) {
+            $builder->where('tp.status', $status_filter);
+        }
+
+        $list_pengajuan = $builder->orderBy('tp.updated_at', 'DESC')->get()->getResultArray();
+
+        // Hitung Ringkasan Status
+        $stats = [
+            'total_opd_mengajukan' => 0,
+            'menunggu_rekomendasi' => 0,
+            'direkomendasikan'     => 0,
+            'dikembalikan'         => 0,
+            'dicairkan'            => 0,
+            'total_nominal_bersih' => 0
+        ];
+
+        $all_pengajuan_periode = $this->db->table('tpp_pengajuan')
+            ->where('bulan', $bulan)
+            ->where('tahun', $tahun)
+            ->where('jenis_tpp', 'dinamis')
+            ->get()->getResultArray();
+
+        foreach ($all_pengajuan_periode as $p) {
+            $stats['total_opd_mengajukan']++;
+            $stats['total_nominal_bersih'] += (float)$p['total_tpp_bersih'];
+            if ($p['status'] == 'diajukan') $stats['menunggu_rekomendasi']++;
+            elseif ($p['status'] == 'rekomendasi_bkpsdm') $stats['direkomendasikan']++;
+            elseif ($p['status'] == 'ditolak_bkpsdm') $stats['dikembalikan']++;
+            elseif ($p['status'] == 'dicairkan') $stats['dicairkan']++;
+        }
+
+        // Ambil daftar OPD aktif prototype untuk melihat siapa yang belum mengajukan
+        $list_opd_aktif = $this->db->table('opd')->where('tpp_dinamis_aktif', 1)->orderBy('nama_opd', 'ASC')->get()->getResultArray();
+        $submitted_opd_ids = array_column($all_pengajuan_periode, 'id_opd');
+        $opd_belum_mengajukan = [];
+        foreach ($list_opd_aktif as $opd) {
+            if (!in_array($opd['id_opd'], $submitted_opd_ids)) {
+                $opd_belum_mengajukan[] = $opd;
+            }
+        }
+
+        return view('admin/tpp_verval_bkpsdm', [
+            'list_pengajuan'       => $list_pengajuan,
+            'stats'                => $stats,
+            'opd_belum_mengajukan' => $opd_belum_mengajukan,
+            'bulan'                => $bulan,
+            'tahun'                => $tahun,
+            'status_filter'        => $status_filter,
+            'level'                => $level
+        ]);
+    }
+
+    /**
+     * BKPSDM: Eksekusi pemberian rekomendasi (diteruskan ke BPKAD) atau tolak usulan
+     */
+    public function proses_rekomendasi()
+    {
+        $session = session();
+        $level = $session->get('level');
+        if (!in_array($level, ['Superadmin', 'kabupaten', 'Administrator'])) {
+            return redirect()->to('/dashboard')->with('error', 'Akses ditolak.');
+        }
+
+        $id = (int)$this->request->getPost('id_pengajuan');
+        $aksi = $this->request->getPost('aksi'); // 'rekomendasi' atau 'tolak'
+        $no_rekomendasi = trim((string)$this->request->getPost('no_rekomendasi'));
+        $catatan_bkpsdm = trim((string)$this->request->getPost('catatan_bkpsdm'));
+        $nama_verifikator = $session->get('nama_user') ?? $session->get('username') ?? 'Admin BKPSDM';
+
+        $pengajuan = $this->db->table('tpp_pengajuan')->where('id', $id)->get()->getRowArray();
+        if (!$pengajuan) {
+            return redirect()->back()->with('error', 'Data pengajuan tidak ditemukan.');
+        }
+
+        if ($aksi === 'rekomendasi') {
+            if (empty($no_rekomendasi)) {
+                return redirect()->back()->with('error', 'Nomor surat rekomendasi BKPSDM wajib diisi.');
+            }
+
+            $this->db->table('tpp_pengajuan')->where('id', $id)->update([
+                'status'             => 'rekomendasi_bkpsdm',
+                'no_rekomendasi'     => $no_rekomendasi,
+                'catatan_bkpsdm'     => $catatan_bkpsdm,
+                'tgl_verval_bkpsdm'  => date('Y-m-d H:i:s'),
+                'verval_oleh_bkpsdm' => $nama_verifikator,
+                'updated_at'         => date('Y-m-d H:i:s')
+            ]);
+
+            return redirect()->back()->with('success', "Rekomendasi TPP No. {$no_rekomendasi} berhasil diterbitkan dan langsung diteruskan ke BPKAD untuk pencairan.");
+        } elseif ($aksi === 'tolak') {
+            $this->db->table('tpp_pengajuan')->where('id', $id)->update([
+                'status'             => 'ditolak_bkpsdm',
+                'catatan_bkpsdm'     => $catatan_bkpsdm ?: 'Perlu perbaikan data absensi / capaian kinerja.',
+                'tgl_verval_bkpsdm'  => date('Y-m-d H:i:s'),
+                'verval_oleh_bkpsdm' => $nama_verifikator,
+                'updated_at'         => date('Y-m-d H:i:s')
+            ]);
+
+            return redirect()->back()->with('success', 'Usulan TPP dikembalikan ke Admin OPD dengan catatan perbaikan.');
+        }
+
+        return redirect()->back()->with('error', 'Aksi tidak valid.');
+    }
+
+    /**
+     * BPKAD: Portal Penerimaan Daftar TPP yang Telah Diverifikasi untuk Dicairkan
+     */
+    public function bpkad()
+    {
+        $session = session();
+        $level = $session->get('level');
+        if (!in_array($level, ['bpkad', 'Superadmin', 'kabupaten', 'Administrator'])) {
+            return redirect()->to('/dashboard')->with('error', 'Akses khusus untuk Admin BPKAD.');
+        }
+
+        $request = \Config\Services::request();
+        $bulan = (int)($request->getGet('bulan') ?? date('m'));
+        $tahun = (int)($request->getGet('tahun') ?? date('Y'));
+        $status_filter = $request->getGet('status');
+
+        $builder = $this->db->table('tpp_pengajuan tp')
+            ->select('tp.*, opd.nama_opd')
+            ->join('opd', 'tp.id_opd = opd.id_opd', 'left')
+            ->where('tp.bulan', $bulan)
+            ->where('tp.tahun', $tahun)
+            ->where('tp.jenis_tpp', 'dinamis');
+
+        if (!empty($status_filter)) {
+            $builder->where('tp.status', $status_filter);
+        } else {
+            // Default BPKAD: tampilkan yang sudah direkomendasikan BKPSDM dan yang sudah dicairkan
+            $builder->whereIn('tp.status', ['rekomendasi_bkpsdm', 'dicairkan']);
+        }
+
+        $list_cair = $builder->orderBy("CASE WHEN tp.status = 'rekomendasi_bkpsdm' THEN 1 ELSE 2 END", 'ASC')
+            ->orderBy('tp.updated_at', 'DESC')
+            ->get()->getResultArray();
+
+        // Metrics BPKAD
+        $all_bpkad = $this->db->table('tpp_pengajuan')
+            ->where('bulan', $bulan)
+            ->where('tahun', $tahun)
+            ->where('jenis_tpp', 'dinamis')
+            ->whereIn('status', ['rekomendasi_bkpsdm', 'dicairkan'])
+            ->get()->getResultArray();
+
+        $stats = [
+            'total_siap_cair_opd'      => 0,
+            'total_siap_cair_nominal'  => 0,
+            'total_sudah_cair_opd'     => 0,
+            'total_sudah_cair_nominal' => 0,
+            'total_pegawai_tercover'   => 0
+        ];
+
+        foreach ($all_bpkad as $item) {
+            $nominal = (float)$item['total_tpp_bersih'];
+            $pegawai = (int)$item['total_pegawai'];
+            if ($item['status'] == 'rekomendasi_bkpsdm') {
+                $stats['total_siap_cair_opd']++;
+                $stats['total_siap_cair_nominal'] += $nominal;
+            } elseif ($item['status'] == 'dicairkan') {
+                $stats['total_sudah_cair_opd']++;
+                $stats['total_sudah_cair_nominal'] += $nominal;
+            }
+            $stats['total_pegawai_tercover'] += $pegawai;
+        }
+
+        return view('admin/tpp_bpkad_pencairan', [
+            'list_cair'     => $list_cair,
+            'stats'         => $stats,
+            'bulan'         => $bulan,
+            'tahun'         => $tahun,
+            'status_filter' => $status_filter,
+            'level'         => $level
+        ]);
+    }
+
+    /**
+     * BPKAD: Eksekusi pencairan TPP (Input No. SP2D & Tanggal Cair)
+     */
+    public function proses_pencairan()
+    {
+        $session = session();
+        $level = $session->get('level');
+        if (!in_array($level, ['bpkad', 'Superadmin', 'kabupaten', 'Administrator'])) {
+            return redirect()->to('/dashboard')->with('error', 'Akses ditolak.');
+        }
+
+        $id = (int)$this->request->getPost('id_pengajuan');
+        $no_sp2d = trim((string)$this->request->getPost('no_sp2d'));
+        $tgl_cair = $this->request->getPost('tgl_cair') ?: date('Y-m-d');
+        $catatan_bpkad = trim((string)$this->request->getPost('catatan_bpkad'));
+        $nama_petugas = $session->get('nama_user') ?? $session->get('username') ?? 'Admin BPKAD';
+
+        if (empty($no_sp2d)) {
+            return redirect()->back()->with('error', 'Nomor SP2D wajib diisi untuk memproses pencairan.');
+        }
+
+        $pengajuan = $this->db->table('tpp_pengajuan')->where('id', $id)->get()->getRowArray();
+        if (!$pengajuan) {
+            return redirect()->back()->with('error', 'Data pengajuan tidak ditemukan.');
+        }
+
+        $this->db->table('tpp_pengajuan')->where('id', $id)->update([
+            'status'               => 'dicairkan',
+            'no_sp2d'              => $no_sp2d,
+            'tgl_cair_bpkad'       => $tgl_cair . ' ' . date('H:i:s'),
+            'dicairkan_oleh_bpkad' => $nama_petugas,
+            'catatan_bpkad'        => $catatan_bpkad,
+            'updated_at'           => date('Y-m-d H:i:s')
+        ]);
+
+        return redirect()->back()->with('success', "Pencairan TPP berhasil dicatat! SP2D No. {$no_sp2d} telah tersimpan resmi.");
+    }
+
+    /**
+     * Cetak Lembar Verifikasi Rekomendasi & Pencairan TPP (Dokumen Resmi Cetak)
+     */
+    public function cetak_lembar_pencairan($id)
+    {
+        $pengajuan = $this->db->table('tpp_pengajuan tp')
+            ->select('tp.*, opd.nama_opd')
+            ->join('opd', 'tp.id_opd = opd.id_opd', 'left')
+            ->where('tp.id', (int)$id)
+            ->get()->getRowArray();
+
+        if (!$pengajuan) {
+            return "Data pengajuan rekomendasi TPP tidak ditemukan.";
+        }
+
+        return view('admin/cetak_lembar_pencairan', [
+            'p' => $pengajuan
+        ]);
     }
 }

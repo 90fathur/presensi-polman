@@ -24,6 +24,7 @@ class Auth extends BaseController
             $sessionData = [
                 'id_user'    => $user['id_user'],
                 'username'   => $user['username'],
+                'nama_user'  => $user['nama_user'] ?? $user['username'],
                 'level'      => $user['level'],
                 'id_opd'     => $user['id_opd'],
                 'id_pegawai' => $user['id_pegawai'], // Wajib ada untuk PWA
@@ -34,6 +35,8 @@ class Auth extends BaseController
             // PEMISAHAN HALAMAN
             if ($user['level'] == 'pegawai') {
                 return redirect()->to('/pwa'); // Arahkan ke rute khusus PWA
+            } elseif ($user['level'] == 'bpkad') {
+                return redirect()->to('/tpp_dinamis/bpkad'); // Arahkan ke panel Pencairan TPP BPKAD
             } else {
                 return redirect()->to('/dashboard'); // Admin Kabupaten/OPD
             }

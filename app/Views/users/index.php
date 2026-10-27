@@ -35,7 +35,7 @@
                                 <div class="small text-muted"><?= $u['nama_opd'] ?? '<span class="text-danger">ADMIN PUSAT</span>' ?></div>
                             </td>
                             <td class="text-center">
-                                <span class="badge <?= $u['level'] == 'kabupaten' ? 'bg-primary' : 'bg-info' ?> small">
+                                <span class="badge <?= $u['level'] == 'kabupaten' ? 'bg-primary' : ($u['level'] == 'bpkad' ? 'bg-warning text-dark' : 'bg-info') ?> small">
                                     <?= strtoupper($u['level']) ?>
                                 </span>
                             </td>
@@ -86,6 +86,7 @@
                             <select name="level" class="form-select" required>
                                 <option value="opd">Admin OPD</option>
                                 <option value="kabupaten">Admin Kabupaten</option>
+                                <option value="bpkad">Admin BPKAD (Pencairan TPP)</option>
                             </select>
                         </div>
                         <div class="col-md-6 mb-3">
@@ -137,6 +138,7 @@
                             <select name="level" id="edit_level" class="form-select bg-light border-0" required>
                                 <option value="opd">Admin OPD</option>
                                 <option value="kabupaten">Admin Kabupaten</option>
+                                <option value="bpkad">Admin BPKAD (Pencairan TPP)</option>
                             </select>
                         </div>
                         <div class="col-md-6 mb-3">
