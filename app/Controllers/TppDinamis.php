@@ -493,19 +493,21 @@ class TppDinamis extends BaseController
                         }
                     }
 
-                    // Pulang Cepat Pc1 s.d Pc4 (Bebas Penalti Jika Hadir Apel)
-                    if (!$is_apel_pagi) {
-                        if (empty($l['jam_pulang_aktual']) || $l['jam_pulang_aktual'] <= '04:00:00') {
-                            if ($tglStr < $hari_ini) $pc4++;
-                        } else {
-                            if (!empty($l['jam_pulang_seharusnya']) && $l['jam_pulang_aktual'] < $l['jam_pulang_seharusnya']) {
-                                $selisih = strtotime($l['jam_pulang_seharusnya']) - strtotime($l['jam_pulang_aktual']);
-                                $menit_pc = floor($selisih / 60);
-                                if ($menit_pc >= 1 && $menit_pc <= 30) $pc1++;
-                                elseif ($menit_pc >= 31 && $menit_pc <= 60) $pc2++;
-                                elseif ($menit_pc >= 61 && $menit_pc <= 90) $pc3++;
-                                elseif ($menit_pc > 90) $pc4++;
-                            }
+                    // Pulang Cepat Pc1 s.d Pc4 / Tidak Absen Pulang
+                    if (empty($l['jam_pulang_aktual']) || $l['jam_pulang_aktual'] <= '04:00:00') {
+                        if ($tglStr < $hari_ini) $pc4++;
+                    } else {
+                        $jam_pulang_target = (!empty($l['jam_pulang_seharusnya']) && $l['jam_pulang_seharusnya'] != '00:00:00')
+                            ? $l['jam_pulang_seharusnya']
+                            : '16:00:00';
+
+                        if ($l['jam_pulang_aktual'] < $jam_pulang_target) {
+                            $selisih = strtotime($jam_pulang_target) - strtotime($l['jam_pulang_aktual']);
+                            $menit_pc = floor($selisih / 60);
+                            if ($menit_pc >= 1 && $menit_pc <= 30) $pc1++;
+                            elseif ($menit_pc >= 31 && $menit_pc <= 60) $pc2++;
+                            elseif ($menit_pc >= 61 && $menit_pc <= 90) $pc3++;
+                            elseif ($menit_pc > 90) $pc4++;
                         }
                     }
                 }
@@ -1330,20 +1332,22 @@ class TppDinamis extends BaseController
                             }
                         }
 
-                        // Pulang Cepat Pc1 s.d Pc4 (Bebas Penalti Jika Hadir Apel)
-                        if (!$is_apel_pagi) {
-                            if (empty($l['jam_pulang_aktual']) || $l['jam_pulang_aktual'] <= '04:00:00') {
-                                if ($tgl_loop < $hari_ini_global) $res['pc4']++;
-                            } else {
-                                if (!empty($l['jam_pulang_seharusnya']) && $l['jam_pulang_aktual'] < $l['jam_pulang_seharusnya']) {
-                                    $selisih = strtotime($l['jam_pulang_seharusnya']) - strtotime($l['jam_pulang_aktual']);
-                                    $menit_pc = floor($selisih / 60);
+                        // Pulang Cepat Pc1 s.d Pc4 / Tidak Absen Pulang
+                        if (empty($l['jam_pulang_aktual']) || $l['jam_pulang_aktual'] <= '04:00:00') {
+                            if ($tgl_loop < $hari_ini_global && !$is_cito) $res['pc4']++;
+                        } else {
+                            $jam_pulang_target = (!empty($l['jam_pulang_seharusnya']) && $l['jam_pulang_seharusnya'] != '00:00:00')
+                                ? $l['jam_pulang_seharusnya']
+                                : ($map_jadwal[$id_jam_aktif][$nama_hari_loop]['jam_pulang'] ?? '16:00:00');
 
-                                    if ($menit_pc >= 1 && $menit_pc <= 30) $res['pc1']++;
-                                    elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
-                                    elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
-                                    elseif ($menit_pc > 90) $res['pc4']++;
-                                }
+                            if ($l['jam_pulang_aktual'] < $jam_pulang_target && !$is_cito) {
+                                $selisih = strtotime($jam_pulang_target) - strtotime($l['jam_pulang_aktual']);
+                                $menit_pc = floor($selisih / 60);
+
+                                if ($menit_pc >= 1 && $menit_pc <= 30) $res['pc1']++;
+                                elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
+                                elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
+                                elseif ($menit_pc > 90) $res['pc4']++;
                             }
                         }
                     }

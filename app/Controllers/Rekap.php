@@ -1599,13 +1599,17 @@ class Rekap extends BaseController
                                 }
                             }
 
-                            // Hitung Pulang Cepat (Abaikan Jika Izin Sore atau Hadir Apel Pagi)
-                            if (!$is_izin_sore && !$is_apel_pagi) {
+                            // Hitung Pulang Cepat / Tidak Absen Pulang (Abaikan hanya jika ada Izin Sore resmi)
+                            if (!$is_izin_sore) {
                                 if (empty($l['jam_pulang_aktual']) || $l['jam_pulang_aktual'] <= '04:00:00') {
                                     if ($tgl_loop < $hari_ini_global && !$is_cito) $res['pc4']++;
                                 } else {
-                                    if (!empty($l['jam_pulang_seharusnya']) && $l['jam_pulang_aktual'] < $l['jam_pulang_seharusnya'] && !$is_cito) {
-                                        $selisih = strtotime($l['jam_pulang_seharusnya']) - strtotime($l['jam_pulang_aktual']);
+                                    $jam_pulang_target = (!empty($l['jam_pulang_seharusnya']) && $l['jam_pulang_seharusnya'] != '00:00:00')
+                                        ? $l['jam_pulang_seharusnya']
+                                        : ($map_jadwal_full[$id_jam_aktif][$nama_hari_loop]['jam_pulang'] ?? '16:00:00');
+
+                                    if ($l['jam_pulang_aktual'] < $jam_pulang_target && !$is_cito) {
+                                        $selisih = strtotime($jam_pulang_target) - strtotime($l['jam_pulang_aktual']);
                                         $menit_pc = floor($selisih / 60);
 
                                         if ($menit_pc >= 1 && $menit_pc <= 30) $res['pc1']++;
@@ -2164,13 +2168,17 @@ class Rekap extends BaseController
                             }
                         }
 
-                        // Hitung Pulang Cepat (Abaikan Jika Izin Sore atau Hadir Apel Pagi)
-                        if (!$is_izin_sore && !$is_apel_pagi) {
+                        // Hitung Pulang Cepat / Tidak Absen Pulang (Abaikan hanya jika ada Izin Sore resmi)
+                        if (!$is_izin_sore) {
                             if (empty($l['jam_pulang_aktual']) || $l['jam_pulang_aktual'] <= '04:00:00') {
                                 if ($tgl_loop < $hari_ini_global && !$is_cito) $res['pc4']++;
                             } else {
-                                if (!empty($l['jam_pulang_seharusnya']) && $l['jam_pulang_aktual'] < $l['jam_pulang_seharusnya'] && !$is_cito) {
-                                    $selisih = strtotime($l['jam_pulang_seharusnya']) - strtotime($l['jam_pulang_aktual']);
+                                $jam_pulang_target = (!empty($l['jam_pulang_seharusnya']) && $l['jam_pulang_seharusnya'] != '00:00:00')
+                                    ? $l['jam_pulang_seharusnya']
+                                    : ($map_jadwal_full[$id_jam_aktif][$nama_hari_loop]['jam_pulang'] ?? '16:00:00');
+
+                                if ($l['jam_pulang_aktual'] < $jam_pulang_target && !$is_cito) {
+                                    $selisih = strtotime($jam_pulang_target) - strtotime($l['jam_pulang_aktual']);
                                     $menit_pc = floor($selisih / 60);
 
                                     if ($menit_pc >= 1 && $menit_pc <= 30) $res['pc1']++;

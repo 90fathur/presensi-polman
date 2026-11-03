@@ -429,7 +429,14 @@ class LaporanTukin extends BaseController
                     $tot_hadir++;
                     $hadir_hari_ini = true;
                     if (($pr['status_masuk'] ?? '') == 'Terlambat') $tot_telat++;
-                    if (($pr['status_pulang'] ?? '') == 'Cepat Pulang') $tot_cepat++;
+
+                    $jam_pulang_target = (!empty($pr['jam_pulang_seharusnya']) && $pr['jam_pulang_seharusnya'] != '00:00:00') ? $pr['jam_pulang_seharusnya'] : '16:00:00';
+                    $is_tidak_pulang = (empty($pr['jam_pulang_aktual']) || $pr['jam_pulang_aktual'] == '00:00:00' || $pr['jam_pulang_aktual'] <= '04:00:00') && $tgl < $hari_ini_global;
+                    $is_cepat_pulang = (!empty($pr['jam_pulang_aktual']) && $pr['jam_pulang_aktual'] > '04:00:00' && (($pr['status_pulang'] ?? '') == 'Cepat Pulang' || $pr['jam_pulang_aktual'] < $jam_pulang_target));
+
+                    if (($is_tidak_pulang || $is_cepat_pulang) && !$is_cito) {
+                        $tot_cepat++;
+                    }
                 }
 
                 if (!empty($izin_kat)) {
