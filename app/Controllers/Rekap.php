@@ -994,9 +994,30 @@ class Rekap extends BaseController
                 }
             }
 
+            $kantor_presensi_dates = [];
             $pr_raw = $db->table('presensi')->select('nip, tanggal')->whereIn('nip', $nips_pegawai_raw)->where('MONTH(tanggal)', $bulan)->where('YEAR(tanggal)', $tahun)->get()->getResultArray();
             foreach ($pr_raw as $pr) {
                 $presensi_dates[$pr['nip']][$pr['tanggal']] = true;
+                $kantor_presensi_dates[$pr['nip']][$pr['tanggal']] = true;
+            }
+
+            // [SUPER FIX]: Tarik Hadir Apel dari apel_peserta (Kantor Bupati / Gabungan)
+            $map_apel_hadir_dates = [];
+            if ($db->tableExists('apel_peserta') && $db->tableExists('apel') && !empty($ids_pegawai_raw)) {
+                $attended_apels = $db->table('apel_peserta')
+                    ->select('apel_peserta.id_pegawai, apel.tanggal, pegawai.nip')
+                    ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                    ->join('pegawai', 'pegawai.id_pegawai = apel_peserta.id_pegawai')
+                    ->whereIn('apel_peserta.id_pegawai', $ids_pegawai_raw)
+                    ->where('MONTH(apel.tanggal)', $bulan)
+                    ->where('YEAR(apel.tanggal)', $tahun)
+                    ->where('apel_peserta.jam_absen IS NOT NULL')
+                    ->where("apel_peserta.jam_absen != ''")
+                    ->get()->getResultArray();
+                foreach ($attended_apels as $ap) {
+                    $presensi_dates[$ap['nip']][$ap['tanggal']] = true;
+                    $map_apel_hadir_dates[$ap['nip']][$ap['tanggal']] = true;
+                }
             }
         }
 
@@ -1089,6 +1110,16 @@ class Rekap extends BaseController
 
             $row['cito_kali'] = $map_cito[$row['id_pegawai']]['kali'] ?? 0;
             $row['cito_menit'] = $map_cito[$row['id_pegawai']]['menit'] ?? 0;
+
+            // [SUPER FIX]: Tambahkan kehadiran apel gabungan ke total_hadir jika belum ada di presensi kantor
+            if (!empty($map_apel_hadir_dates[$row['nip']])) {
+                foreach ($map_apel_hadir_dates[$row['nip']] as $tgl_ap => $val) {
+                    if (empty($kantor_presensi_dates[$row['nip']][$tgl_ap])) {
+                        $row['total_hadir'] = (int)($row['total_hadir'] ?? 0) + 1;
+                        $row['st_istimewa'] = (int)($row['st_istimewa'] ?? 0) + 1;
+                    }
+                }
+            }
 
             $data_final[] = $row;
         }
@@ -1573,7 +1604,7 @@ class Rekap extends BaseController
                             }
                         }
 
-                        $is_apel_pagi = (strpos($status_masuk, 'apel') !== false || strpos($kategori, 'apel') !== false || strpos($deskripsi, 'apel') !== false);
+                        $is_apel_pagi = (strpos($status_masuk, 'apel') !== false || strpos($kategori, 'apel') !== false || (strpos($deskripsi, 'apel') !== false && strpos($deskripsi, 'tidak mengikuti apel') === false));
 
                         if (!$is_full_day) {
                             if ($nama_hari_loop == 'senin' && !$is_apel_pagi && (empty($l['jam_masuk_aktual']) || $l['jam_masuk_aktual'] == '00:00:00')) {
@@ -2142,7 +2173,7 @@ class Rekap extends BaseController
                         $is_full_day = true;
                     }
 
-                    $is_apel_pagi = (strpos($status_masuk, 'apel') !== false || strpos($kategori, 'apel') !== false || strpos($deskripsi, 'apel') !== false);
+                    $is_apel_pagi = (strpos($status_masuk, 'apel') !== false || strpos($kategori, 'apel') !== false || (strpos($deskripsi, 'apel') !== false && strpos($deskripsi, 'tidak mengikuti apel') === false));
 
                     if (!$is_full_day) {
                         if ($nama_hari_loop == 'senin' && !$is_apel_pagi && (empty($l['jam_masuk_aktual']) || $l['jam_masuk_aktual'] == '00:00:00')) {
@@ -2552,9 +2583,32 @@ class Rekap extends BaseController
                         $map_izin_today[$iz['nip']] = strtoupper($iz['kategori']) . ($iz['sub_kategori'] ? ' (' . $iz['sub_kategori'] . ')' : '');
                     }
                 }
+                // 4. [SUPER FIX]: Tarik Hadir Apel Gabungan / Kantor Bupati dari apel_peserta
+                $map_apel_today = [];
+                if ($db->tableExists('apel_peserta') && $db->tableExists('apel')) {
+                    $attended_apel_today = $db->table('apel_peserta')
+                        ->select('apel_peserta.*, apel.nama_apel, apel.jam_mulai')
+                        ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                        ->whereIn('apel_peserta.id_pegawai', $ids_pegawai)
+                        ->where('apel.tanggal', $tanggal)
+                        ->where('apel_peserta.jam_absen IS NOT NULL')
+                        ->where("apel_peserta.jam_absen != ''")
+                        ->get()->getResultArray();
+                    foreach ($attended_apel_today as $ap) {
+                        $map_apel_today[$ap['id_pegawai']] = $ap;
+                    }
+                }
             }
 
             foreach ($results as $r) {
+                // [SUPER FIX]: Jika belum ada presensi kantor tapi hadir apel di apel_peserta
+                if ((empty($r['kategori']) || strtolower($r['kategori']) == 'alpa' || empty($r['jam_masuk_aktual'])) && isset($map_apel_today[$r['id_pegawai']])) {
+                    $ap = $map_apel_today[$r['id_pegawai']];
+                    $r['kategori'] = 'Hadir';
+                    $r['status_masuk'] = 'Hadir (Apel)';
+                    $r['jam_masuk_aktual'] = (strlen($ap['jam_absen']) > 8) ? date('H:i:s', strtotime($ap['jam_absen'])) : $ap['jam_absen'];
+                    $r['menit_keterlambatan'] = 0;
+                }
                 $status = "Tanpa Keterangan";
                 $bg = "bg-st-default";
                 $status_pulang_label = "-";

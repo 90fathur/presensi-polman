@@ -468,7 +468,7 @@ class TppDinamis extends BaseController
                 $kat = strtolower(trim((string)($l['kategori'] ?? '')));
                 $status_masuk = $l['status_masuk'] ?? '';
                 $deskripsi = strtolower($l['deskripsi'] ?? '');
-                $is_apel_pagi = (strpos($status_masuk, 'Apel') !== false || strpos($kat, 'apel') !== false || strpos($deskripsi, 'apel') !== false);
+                $is_apel_pagi = (strpos($status_masuk, 'Apel') !== false || strpos($kat, 'apel') !== false || (strpos($deskripsi, 'apel') !== false && strpos($deskripsi, 'tidak mengikuti apel') === false));
 
                 if ($kat === 'alpa' || ($l['status_verifikasi'] ?? '') === 'Dianulir') {
                     $alpa++;
@@ -1309,7 +1309,7 @@ class TppDinamis extends BaseController
                     }
 
                     $status_masuk = $l['status_masuk'] ?? '';
-                    $is_apel_pagi = (strpos($status_masuk, 'Apel') !== false || strpos($kategori, 'apel') !== false || strpos($deskripsi, 'apel') !== false);
+                    $is_apel_pagi = (strpos($status_masuk, 'Apel') !== false || strpos($kategori, 'apel') !== false || (strpos($deskripsi, 'apel') !== false && strpos($deskripsi, 'tidak mengikuti apel') === false));
 
                     if (!$is_full_day) {
                         // Keterlambatan P1 s.d P4 (dengan toleransi 45 menit & bebas penalti jika Hadir Apel atau Cukup Baik)
