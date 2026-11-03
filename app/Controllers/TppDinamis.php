@@ -135,7 +135,7 @@ class TppDinamis extends BaseController
     /**
      * Helper nama hari Indonesia
      */
-    private function get_nama_hari($day_short)
+    public static function get_nama_hari($day_short)
     {
         $map = [
             'Sun' => 'minggu',
@@ -204,20 +204,38 @@ class TppDinamis extends BaseController
         // 2. Ambil data Pagu & E-Kinerja Pegawai
         $pagu = null;
         if ($db->tableExists('tpp_pagu')) {
-            $pagu = $db->table('tpp_pagu')->where('nip', $nip)->get()->getRowArray();
+            $pagu = $db->table('tpp_pagu')
+                ->groupStart()->where('nip', $nip)->orWhere('nip', $pegawai['nip'])->groupEnd()
+                ->get()->getRowArray();
         }
 
         $ekin = null;
         if ($db->tableExists('tpp_ekin_data')) {
             $ekin = $db->table('tpp_ekin_data')
-                ->where('nip', $nip)
+                ->groupStart()->where('nip', $nip)->orWhere('nip', $pegawai['nip'])->groupEnd()
                 ->where('bulan', $bulan)
                 ->where('tahun', $tahun)
                 ->get()->getRowArray();
+
+            // Fallback: Jika data e-kinerja bulan berjalan belum diunggah, ambil dari data e-kinerja terbaru yang tersedia
+            if (!$ekin) {
+                $ekin = $db->table('tpp_ekin_data')
+                    ->groupStart()->where('nip', $nip)->orWhere('nip', $pegawai['nip'])->groupEnd()
+                    ->where('(tpp_bk > 0 OR tpp_kk > 0)')
+                    ->orderBy('tahun', 'DESC')
+                    ->orderBy('bulan', 'DESC')
+                    ->get()->getRowArray();
+            }
         }
 
         $tpp_bk = (isset($ekin['tpp_bk']) && (float)$ekin['tpp_bk'] > 0) ? (float)$ekin['tpp_bk'] : ((float)($pagu['tpp_bk'] ?? 0));
         $tpp_kk = (isset($ekin['tpp_kk']) && (float)$ekin['tpp_kk'] > 0) ? (float)$ekin['tpp_kk'] : ((float)($pagu['tpp_kk'] ?? 0));
+        if ($tpp_bk <= 0 && !empty($pagu['tpp_bk'])) {
+            $tpp_bk = (float)$pagu['tpp_bk'];
+        }
+        if ($tpp_kk <= 0 && !empty($pagu['tpp_kk'])) {
+            $tpp_kk = (float)$pagu['tpp_kk'];
+        }
         $wke = $ekin['wke'] ?? '0';
         $predikat = $ekin['predikat_kinerja'] ?? 'BAIK';
         $persen_kinerja = isset($ekin['persen_kinerja']) ? (float)$ekin['persen_kinerja'] : 100.00;
@@ -411,7 +429,7 @@ class TppDinamis extends BaseController
         while ($curTime <= $endTime) {
             $tglStr = date('Y-m-d', $curTime);
             $dayOfWeek = date('N', $curTime); // 1 = Senin, 7 = Minggu
-            $nama_hari_loop = strtolower($this->get_nama_hari(date('D', $curTime)));
+            $nama_hari_loop = strtolower(self::get_nama_hari(date('D', $curTime)));
             $is_libur_nasional = in_array($tglStr, $liburDates);
 
             $ada_jadwal = isset($map_plotting_user[$tglStr]);
