@@ -336,6 +336,41 @@ class TppDinamis extends BaseController
             }
         }
 
+        // Jam kerja detail map
+        $jam_kerja_raw = $db->table('jam_kerja_detail')->get()->getResultArray();
+        $map_hari_kerja = [];
+        foreach ($jam_kerja_raw as $jk) {
+            $map_hari_kerja[$jk['id_jam_kerja']][] = strtolower($jk['hari']);
+        }
+
+        // Plotting Shift (Nakes / Puskesmas / RSUD)
+        $map_plotting_user = [];
+        $is_nakes_user = false;
+        if ($db->tableExists('plotting_shift')) {
+            $b_plot = $db->table('plotting_shift')->where('id_pegawai', $id_pegawai);
+            if ($db->fieldExists('tanggal_mulai', 'plotting_shift')) {
+                $b_plot->where("tanggal_mulai <=", $tgl_akhir)->where("tanggal_selesai >=", $tgl_awal);
+            } else {
+                $b_plot->where("MONTH(tanggal)", $bulan)->where("YEAR(tanggal)", $tahun);
+            }
+            $plots = $b_plot->get()->getResultArray();
+            if (!empty($plots)) {
+                $is_nakes_user = true;
+                foreach ($plots as $pl) {
+                    if (isset($pl['tanggal_mulai'])) {
+                        $start_dt = new \DateTime(max($pl['tanggal_mulai'], $tgl_awal));
+                        $end_dt = new \DateTime(min($pl['tanggal_selesai'], $tgl_akhir));
+                        $end_dt->modify('+1 day');
+                        foreach (new \DatePeriod($start_dt, new \DateInterval('P1D'), $end_dt) as $dt) {
+                            $map_plotting_user[$dt->format('Y-m-d')] = $pl['id_jam_kerja'];
+                        }
+                    } else {
+                        $map_plotting_user[$pl['tanggal']] = $pl['id_jam_kerja'];
+                    }
+                }
+            }
+        }
+
         // Hitung akumulasi disiplin
         $p1 = 0; $p2 = 0; $p3 = 0; $p4 = 0;
         $pc1 = 0; $pc2 = 0; $pc3 = 0; $pc4 = 0;
@@ -347,65 +382,90 @@ class TppDinamis extends BaseController
         while ($curTime <= $endTime) {
             $tglStr = date('Y-m-d', $curTime);
             $dayOfWeek = date('N', $curTime); // 1 = Senin, 7 = Minggu
+            $nama_hari_loop = strtolower($this->get_nama_hari(date('D', $curTime)));
+            $is_libur_nasional = in_array($tglStr, $liburDates);
 
-            // Lewati hari Sabtu (6) dan Minggu (7) serta hari libur
-            if ($dayOfWeek <= 5 && !in_array($tglStr, $liburDates)) {
-                $hari_kerja++;
+            $ada_jadwal = isset($map_plotting_user[$tglStr]);
+            $is_lepas_jaga = ($is_nakes_user && !$ada_jadwal);
 
-                if (isset($izinDates[$tglStr])) {
-                    // Izin/Sakit/Cuti resmi tidak kena potongan
-                } elseif (isset($presensiMap[$tglStr])) {
-                    $l = $presensiMap[$tglStr];
-                    $hadir++;
-                    $kat = strtolower(trim((string)($l['kategori'] ?? '')));
-                    $status_masuk = $l['status_masuk'] ?? '';
-                    $deskripsi = strtolower($l['deskripsi'] ?? '');
-                    $is_apel_pagi = (strpos($status_masuk, 'Apel') !== false || strpos($kat, 'apel') !== false || strpos($deskripsi, 'apel') !== false);
+            $id_jam_aktif = isset($presensiMap[$tglStr]['id_jam_kerja_snapshot']) && !empty($presensiMap[$tglStr]['id_jam_kerja_snapshot'])
+                ? $presensiMap[$tglStr]['id_jam_kerja_snapshot']
+                : ($ada_jadwal ? $map_plotting_user[$tglStr] : ($pegawai['id_jam_opd'] ?? $pegawai['id_jam_kerja'] ?? 1));
 
-                    if ($kat === 'alpa' || ($l['status_verifikasi'] ?? '') === 'Dianulir') {
-                        $alpa++;
-                    } else {
-                        // Keterlambatan P1 s.d P4 (dengan toleransi 45 menit & bebas penalti jika Hadir Apel atau Cukup Baik)
-                        if (!$is_apel_pagi) {
-                            if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
-                                if (in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran']) || (isset($l['menit_keterlambatan']) && (int)$l['menit_keterlambatan'] > 45)) {
-                                    $menit_telat = max(0, ((int)($l['menit_keterlambatan'] ?? 0)) - 45);
-                                    if ($menit_telat == 0 && in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran'])) {
-                                        $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';
-                                        $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
-                                        $menit_telat = max(0, floor($selisih / 60) - 45);
-                                    }
-                                    if ($menit_telat >= 1 && $menit_telat <= 30) $p1++;
-                                    elseif ($menit_telat >= 31 && $menit_telat <= 60) $p2++;
-                                    elseif ($menit_telat >= 61 && $menit_telat <= 90) $p3++;
-                                    elseif ($menit_telat > 90) $p4++;
-                                }
-                            } else {
-                                if ($tglStr < $hari_ini) $p4++;
-                            }
-                        }
+            $hari_kerja_aktif = $map_hari_kerja[$id_jam_aktif] ?? ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
+            $is_hari_kerja = in_array($nama_hari_loop, $hari_kerja_aktif);
 
-                        // Pulang Cepat Pc1 s.d Pc4 (Bebas Penalti Jika Hadir Apel)
-                        if (!$is_apel_pagi) {
-                            if (empty($l['jam_pulang_aktual']) || $l['jam_pulang_aktual'] <= '04:00:00') {
-                                if ($tglStr < $hari_ini) $pc4++;
-                            } else {
-                                if (!empty($l['jam_pulang_seharusnya']) && $l['jam_pulang_aktual'] < $l['jam_pulang_seharusnya']) {
-                                    $selisih = strtotime($l['jam_pulang_seharusnya']) - strtotime($l['jam_pulang_aktual']);
-                                    $menit_pc = floor($selisih / 60);
-                                    if ($menit_pc >= 1 && $menit_pc <= 30) $pc1++;
-                                    elseif ($menit_pc >= 31 && $menit_pc <= 60) $pc2++;
-                                    elseif ($menit_pc >= 61 && $menit_pc <= 90) $pc3++;
-                                    elseif ($menit_pc > 90) $pc4++;
-                                }
-                            }
-                        }
-                    }
+            // Lewati jika Lepas Jaga (Libur Shift Nakes)
+            if ($is_lepas_jaga) {
+                $curTime = strtotime('+1 day', $curTime);
+                continue;
+            }
+            // Lewati jika Libur Nasional bagi non-shift
+            if ($is_libur_nasional && !$is_nakes_user) {
+                $curTime = strtotime('+1 day', $curTime);
+                continue;
+            }
+            // Lewati jika bukan hari kerja sesuai jadwal
+            if (!$is_hari_kerja) {
+                $curTime = strtotime('+1 day', $curTime);
+                continue;
+            }
+
+            $hari_kerja++;
+
+            if (isset($izinDates[$tglStr])) {
+                // Izin/Sakit/Cuti resmi tidak kena potongan
+            } elseif (isset($presensiMap[$tglStr])) {
+                $l = $presensiMap[$tglStr];
+                $hadir++;
+                $kat = strtolower(trim((string)($l['kategori'] ?? '')));
+                $status_masuk = $l['status_masuk'] ?? '';
+                $deskripsi = strtolower($l['deskripsi'] ?? '');
+                $is_apel_pagi = (strpos($status_masuk, 'Apel') !== false || strpos($kat, 'apel') !== false || strpos($deskripsi, 'apel') !== false);
+
+                if ($kat === 'alpa' || ($l['status_verifikasi'] ?? '') === 'Dianulir') {
+                    $alpa++;
                 } else {
-                    if ($tglStr < $hari_ini) {
-                        $alpa++;
-                        if ($dayOfWeek == 1) $tdk++; // Apel Senin
+                    // Keterlambatan P1 s.d P4 (dengan toleransi 45 menit & bebas penalti jika Hadir Apel atau Cukup Baik)
+                    if (!$is_apel_pagi) {
+                        if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
+                            if (in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran']) || (isset($l['menit_keterlambatan']) && (int)$l['menit_keterlambatan'] > 45)) {
+                                $menit_telat = max(0, ((int)($l['menit_keterlambatan'] ?? 0)) - 45);
+                                if ($menit_telat == 0 && in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran'])) {
+                                    $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';
+                                    $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
+                                    $menit_telat = max(0, floor($selisih / 60) - 45);
+                                }
+                                if ($menit_telat >= 1 && $menit_telat <= 30) $p1++;
+                                elseif ($menit_telat >= 31 && $menit_telat <= 60) $p2++;
+                                elseif ($menit_telat >= 61 && $menit_telat <= 90) $p3++;
+                                elseif ($menit_telat > 90) $p4++;
+                            }
+                        } else {
+                            if ($tglStr < $hari_ini) $p4++;
+                        }
                     }
+
+                    // Pulang Cepat Pc1 s.d Pc4 (Bebas Penalti Jika Hadir Apel)
+                    if (!$is_apel_pagi) {
+                        if (empty($l['jam_pulang_aktual']) || $l['jam_pulang_aktual'] <= '04:00:00') {
+                            if ($tglStr < $hari_ini) $pc4++;
+                        } else {
+                            if (!empty($l['jam_pulang_seharusnya']) && $l['jam_pulang_aktual'] < $l['jam_pulang_seharusnya']) {
+                                $selisih = strtotime($l['jam_pulang_seharusnya']) - strtotime($l['jam_pulang_aktual']);
+                                $menit_pc = floor($selisih / 60);
+                                if ($menit_pc >= 1 && $menit_pc <= 30) $pc1++;
+                                elseif ($menit_pc >= 31 && $menit_pc <= 60) $pc2++;
+                                elseif ($menit_pc >= 61 && $menit_pc <= 90) $pc3++;
+                                elseif ($menit_pc > 90) $pc4++;
+                            }
+                        }
+                    }
+                }
+            } else {
+                if ($tglStr < $hari_ini) {
+                    $alpa++;
+                    if ($dayOfWeek == 1 && !$is_nakes_user) $tdk++; // Apel Senin tidak berlaku bagi Nakes shift
                 }
             }
             $curTime = strtotime('+1 day', $curTime);
@@ -866,8 +926,54 @@ class TppDinamis extends BaseController
         $all_presensi = [];
         $map_izin_full = [];
         $map_cuti = [];
+        $map_plotting = [];
+        $is_nakes_map = [];
+
+        $master_jam = $db->table('jam_kerja')->get()->getResultArray();
+        $map_jam_name = [];
+        foreach ($master_jam as $mj) $map_jam_name[$mj['id_jam_kerja']] = $mj['nama_jadwal'] ?? '';
+
+        $jam_kerja_raw = $db->table('jam_kerja_detail')->get()->getResultArray();
+        $map_hari_kerja = [];
+        foreach ($jam_kerja_raw as $jk) {
+            $map_hari_kerja[$jk['id_jam_kerja']][] = strtolower($jk['hari']);
+        }
 
         if (!empty($ids_pegawai)) {
+            // Plotting shift untuk Nakes
+            if ($db->tableExists('plotting_shift')) {
+                try {
+                    $builder_plot = $db->table('plotting_shift')->whereIn('id_pegawai', $ids_pegawai);
+                    if ($db->fieldExists('tanggal_mulai', 'plotting_shift')) {
+                        $builder_plot->where("tanggal_mulai <=", "$tahun-$bulan-31")->where("tanggal_selesai >=", "$tahun-$bulan-01");
+                    } else {
+                        $builder_plot->where("MONTH(tanggal)", $bulan)->where("YEAR(tanggal)", $tahun);
+                    }
+                    $plotting_db = $builder_plot->get()->getResultArray();
+
+                    foreach ($plotting_db as $pl) {
+                        $nama_jadwal_master = strtolower($map_jam_name[$pl['id_jam_kerja']] ?? '');
+                        if (strpos($nama_jadwal_master, 'ramadhan') === false && strpos($nama_jadwal_master, 'puasa') === false) {
+                            $is_nakes_map[$pl['id_pegawai']] = true;
+                        }
+
+                        if (isset($pl['tanggal_mulai'])) {
+                            $start = new \DateTime($pl['tanggal_mulai']);
+                            $end = new \DateTime($pl['tanggal_selesai']);
+                            $end->modify('+1 day');
+                            $period = new \DatePeriod($start, new \DateInterval('P1D'), $end);
+                            foreach ($period as $date) {
+                                $map_plotting[$pl['id_pegawai']][$date->format('Y-m-d')] = $pl['id_jam_kerja'];
+                            }
+                        } else {
+                            $map_plotting[$pl['id_pegawai']][$pl['tanggal']] = $pl['id_jam_kerja'];
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    log_message('error', 'Plotting shift query error: ' . $e->getMessage());
+                }
+            }
+
             // Apel / Upacara tidak hadir
             if ($db->tableExists('apel_peserta') && $db->tableExists('apel')) {
                 try {
@@ -1050,11 +1156,26 @@ class TppDinamis extends BaseController
                 $nama_hari_loop = strtolower($this->get_nama_hari($day_short));
                 $is_libur_nasional = in_array($tgl_loop, $array_tgl_libur);
 
-                // Hari kerja reguler Senin s.d. Jumat (kecuali libur nasional)
-                $is_weekend = in_array($nama_hari_loop, ['sabtu', 'minggu']);
-                if ($is_weekend || $is_libur_nasional) {
-                    continue;
+                $is_shift_murni = isset($is_nakes_map[$pgw['id_pegawai']]);
+                $ada_jadwal = isset($map_plotting[$pgw['id_pegawai']][$tgl_loop]);
+                $is_lepas_jaga = ($is_shift_murni && !$ada_jadwal);
+
+                $id_jam_aktif = $pgw['id_jam_opd'] ?? 1;
+                if (isset($log_map[$tgl_loop]) && !empty($log_map[$tgl_loop]['id_jam_kerja_snapshot'])) {
+                    $id_jam_aktif = $log_map[$tgl_loop]['id_jam_kerja_snapshot'];
+                } elseif ($ada_jadwal) {
+                    $id_jam_aktif = $map_plotting[$pgw['id_pegawai']][$tgl_loop];
                 }
+
+                $nama_jk_aktif = strtolower($map_jam_name[$id_jam_aktif] ?? '');
+                $is_cito = (strpos($nama_jk_aktif, 'cito') !== false || strpos($nama_jk_aktif, 'standby') !== false);
+
+                $hari_kerja_aktif = $map_hari_kerja[$id_jam_aktif] ?? ['senin', 'selasa', 'rabu', 'kamis', 'jumat'];
+                $is_hari_kerja = in_array($nama_hari_loop, $hari_kerja_aktif);
+
+                if ($is_lepas_jaga) continue;
+                if ($is_libur_nasional && !$is_shift_murni) continue;
+                if (!$is_hari_kerja && !$is_cito) continue;
 
                 $res['hari_kerja']++;
 
@@ -1147,9 +1268,9 @@ class TppDinamis extends BaseController
                     }
                 } else {
                     // Tidak ada log presensi sama sekali pada hari kerja
-                    if ($tgl_loop < $hari_ini_global) {
+                    if ($tgl_loop < $hari_ini_global && !$is_cito) {
                         $res['a']++;
-                        if ($nama_hari_loop == 'senin') {
+                        if ($nama_hari_loop == 'senin' && !$is_shift_murni) {
                             $res['tdk']++;
                         }
                     }
