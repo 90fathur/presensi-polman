@@ -280,7 +280,69 @@ class Rekap extends BaseController
 
                 $data_presensi = [];
                 foreach ($presensi_raw as $p) {
-                    $data_presensi[$p['nip']][$p['tanggal']] = $p;
+                    $nip = $p['nip'];
+                    $tgl = $p['tanggal'];
+                    if (!isset($data_presensi[$nip][$tgl])) {
+                        $data_presensi[$nip][$tgl] = $p;
+                    } else {
+                        $existing = $data_presensi[$nip][$tgl];
+                        if ((empty($existing['jam_masuk_aktual']) || $existing['jam_masuk_aktual'] == '00:00:00') && !empty($p['jam_masuk_aktual']) && $p['jam_masuk_aktual'] != '00:00:00') {
+                            $existing['jam_masuk_aktual'] = $p['jam_masuk_aktual'];
+                            $existing['status_masuk'] = $p['status_masuk'];
+                            $existing['kategori'] = $p['kategori'];
+                        }
+                        if ((empty($existing['jam_pulang_aktual']) || $existing['jam_pulang_aktual'] == '00:00:00') && !empty($p['jam_pulang_aktual']) && $p['jam_pulang_aktual'] != '00:00:00') {
+                            $existing['jam_pulang_aktual'] = $p['jam_pulang_aktual'];
+                            $existing['status_pulang'] = $p['status_pulang'];
+                        }
+                        $data_presensi[$nip][$tgl] = $existing;
+                    }
+                }
+
+                // Super Fix: Tarik Hadir Apel dari apel_peserta (Kantor Bupati / Gabungan)
+                if ($db->tableExists('apel_peserta') && $db->tableExists('apel')) {
+                    $attended_apels = $db->table('apel_peserta')
+                        ->select('apel_peserta.*, apel.tanggal, apel.jam_mulai, apel.nama_apel, pegawai.nip')
+                        ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                        ->join('pegawai', 'pegawai.id_pegawai = apel_peserta.id_pegawai')
+                        ->whereIn('apel_peserta.id_pegawai', $ids_pegawai)
+                        ->where('apel.tanggal >=', $tgl_awal_bulan)
+                        ->where('apel.tanggal <=', $tgl_akhir_bulan)
+                        ->where('apel_peserta.jam_absen IS NOT NULL')
+                        ->where("apel_peserta.jam_absen != ''")
+                        ->get()->getResultArray();
+
+                    foreach ($attended_apels as $ap) {
+                        $nip = $ap['nip'];
+                        $tgl = $ap['tanggal'];
+                        $jam_absen_clean = (strlen($ap['jam_absen']) > 8) ? date('H:i:s', strtotime($ap['jam_absen'])) : $ap['jam_absen'];
+                        $jam_mulai_clean = !empty($ap['jam_mulai']) ? $ap['jam_mulai'] : '07:30:00';
+
+                        if (!isset($data_presensi[$nip][$tgl])) {
+                            $data_presensi[$nip][$tgl] = [
+                                'id_pegawai'            => $ap['id_pegawai'],
+                                'nip'                   => $nip,
+                                'tanggal'               => $tgl,
+                                'jam_masuk_aktual'      => $jam_absen_clean,
+                                'jam_masuk_seharusnya'  => $jam_mulai_clean,
+                                'jam_pulang_aktual'     => null,
+                                'jam_pulang_seharusnya' => '16:00:00',
+                                'status_masuk'          => 'Hadir (Apel)',
+                                'status_pulang'         => null,
+                                'kategori'              => 'Hadir',
+                                'menit_keterlambatan'   => 0,
+                                'deskripsi'             => 'Hadir apel: ' . $ap['nama_apel']
+                            ];
+                        } else {
+                            if (empty($data_presensi[$nip][$tgl]['jam_masuk_aktual']) || $data_presensi[$nip][$tgl]['jam_masuk_aktual'] == '00:00:00' || strtolower($data_presensi[$nip][$tgl]['kategori'] ?? '') === 'alpa') {
+                                $data_presensi[$nip][$tgl]['jam_masuk_aktual'] = $jam_absen_clean;
+                                $data_presensi[$nip][$tgl]['jam_masuk_seharusnya'] = $jam_mulai_clean;
+                                $data_presensi[$nip][$tgl]['status_masuk'] = 'Hadir (Apel)';
+                                $data_presensi[$nip][$tgl]['kategori'] = 'Hadir';
+                                $data_presensi[$nip][$tgl]['menit_keterlambatan'] = 0;
+                            }
+                        }
+                    }
                 }
 
                 foreach ($pegawai as $pgw) {
@@ -1301,7 +1363,70 @@ class Rekap extends BaseController
                     ->where('YEAR(tanggal)', $tahun)
                     ->get()->getResultArray();
                 foreach ($logs_raw as $l) {
-                    $all_presensi[$l['nip']][$l['tanggal']] = $l;
+                    $nip = $l['nip'];
+                    $tgl = $l['tanggal'];
+                    if (!isset($all_presensi[$nip][$tgl])) {
+                        $all_presensi[$nip][$tgl] = $l;
+                    } else {
+                        $existing = $all_presensi[$nip][$tgl];
+                        if ((empty($existing['jam_masuk_aktual']) || $existing['jam_masuk_aktual'] == '00:00:00') && !empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] != '00:00:00') {
+                            $existing['jam_masuk_aktual'] = $l['jam_masuk_aktual'];
+                            $existing['status_masuk'] = $l['status_masuk'];
+                            $existing['kategori'] = $l['kategori'];
+                            $existing['menit_keterlambatan'] = $l['menit_keterlambatan'] ?? 0;
+                        }
+                        if ((empty($existing['jam_pulang_aktual']) || $existing['jam_pulang_aktual'] == '00:00:00') && !empty($l['jam_pulang_aktual']) && $l['jam_pulang_aktual'] != '00:00:00') {
+                            $existing['jam_pulang_aktual'] = $l['jam_pulang_aktual'];
+                            $existing['status_pulang'] = $l['status_pulang'];
+                        }
+                        $all_presensi[$nip][$tgl] = $existing;
+                    }
+                }
+
+                // Super Fix: Tarik Hadir Apel dari apel_peserta (Kantor Bupati / Gabungan)
+                if ($db->tableExists('apel_peserta') && $db->tableExists('apel')) {
+                    $attended_apels = $db->table('apel_peserta')
+                        ->select('apel_peserta.*, apel.tanggal, apel.jam_mulai, apel.nama_apel, pegawai.nip')
+                        ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                        ->join('pegawai', 'pegawai.id_pegawai = apel_peserta.id_pegawai')
+                        ->whereIn('apel_peserta.id_pegawai', $ids_pegawai)
+                        ->where('apel.tanggal >=', $tgl_awal_bulan)
+                        ->where('apel.tanggal <=', $tgl_akhir_bulan)
+                        ->where('apel_peserta.jam_absen IS NOT NULL')
+                        ->where("apel_peserta.jam_absen != ''")
+                        ->get()->getResultArray();
+
+                    foreach ($attended_apels as $ap) {
+                        $nip = $ap['nip'];
+                        $tgl = $ap['tanggal'];
+                        $jam_absen_clean = (strlen($ap['jam_absen']) > 8) ? date('H:i:s', strtotime($ap['jam_absen'])) : $ap['jam_absen'];
+                        $jam_mulai_clean = !empty($ap['jam_mulai']) ? $ap['jam_mulai'] : '07:30:00';
+
+                        if (!isset($all_presensi[$nip][$tgl])) {
+                            $all_presensi[$nip][$tgl] = [
+                                'id_pegawai'            => $ap['id_pegawai'],
+                                'nip'                   => $nip,
+                                'tanggal'               => $tgl,
+                                'jam_masuk_aktual'      => $jam_absen_clean,
+                                'jam_masuk_seharusnya'  => $jam_mulai_clean,
+                                'jam_pulang_aktual'     => null,
+                                'jam_pulang_seharusnya' => '16:00:00',
+                                'status_masuk'          => 'Hadir (Apel)',
+                                'status_pulang'         => null,
+                                'kategori'              => 'Hadir',
+                                'menit_keterlambatan'   => 0,
+                                'deskripsi'             => 'Hadir apel: ' . $ap['nama_apel']
+                            ];
+                        } else {
+                            if (empty($all_presensi[$nip][$tgl]['jam_masuk_aktual']) || $all_presensi[$nip][$tgl]['jam_masuk_aktual'] == '00:00:00' || strtolower($all_presensi[$nip][$tgl]['kategori'] ?? '') === 'alpa') {
+                                $all_presensi[$nip][$tgl]['jam_masuk_aktual'] = $jam_absen_clean;
+                                $all_presensi[$nip][$tgl]['jam_masuk_seharusnya'] = $jam_mulai_clean;
+                                $all_presensi[$nip][$tgl]['status_masuk'] = 'Hadir (Apel)';
+                                $all_presensi[$nip][$tgl]['kategori'] = 'Hadir';
+                                $all_presensi[$nip][$tgl]['menit_keterlambatan'] = 0;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1430,12 +1555,14 @@ class Rekap extends BaseController
                             }
                         }
 
+                        $is_apel_pagi = (strpos($status_masuk, 'apel') !== false || strpos($kategori, 'apel') !== false || strpos($deskripsi, 'apel') !== false);
+
                         if (!$is_full_day) {
-                            if ($nama_hari_loop == 'senin' && (empty($l['jam_masuk_aktual']) || $l['jam_masuk_aktual'] == '00:00:00')) {
+                            if ($nama_hari_loop == 'senin' && !$is_apel_pagi && (empty($l['jam_masuk_aktual']) || $l['jam_masuk_aktual'] == '00:00:00')) {
                                 $res['tdk']++;
                             }
 
-                            if (!$is_izin_pagi) {
+                            if (!$is_izin_pagi && !$is_apel_pagi) {
                                 if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
                                     if (in_array($l['status_masuk'], ['Terlambat', 'Pembinaan', 'Teguran']) && !$is_cito) {
                                         $config_jam = $map_jadwal_full[$id_jam_aktif][$nama_hari_loop] ?? null;
@@ -1454,8 +1581,8 @@ class Rekap extends BaseController
                                 }
                             }
 
-                            // Hitung Pulang Cepat (Abaikan Jika Izin Sore)
-                            if (!$is_izin_sore) {
+                            // Hitung Pulang Cepat (Abaikan Jika Izin Sore atau Hadir Apel Pagi)
+                            if (!$is_izin_sore && !$is_apel_pagi) {
                                 if (empty($l['jam_pulang_aktual']) || $l['jam_pulang_aktual'] <= '04:00:00') {
                                     if ($tgl_loop < $hari_ini_global && !$is_cito) $res['pc4']++;
                                 } else {
@@ -1787,7 +1914,70 @@ class Rekap extends BaseController
                 ->where('YEAR(tanggal)', $tahun)
                 ->get()->getResultArray();
             foreach ($logs_raw as $l) {
-                $all_presensi[$l['nip']][$l['tanggal']] = $l;
+                $nip = $l['nip'];
+                $tgl = $l['tanggal'];
+                if (!isset($all_presensi[$nip][$tgl])) {
+                    $all_presensi[$nip][$tgl] = $l;
+                } else {
+                    $existing = $all_presensi[$nip][$tgl];
+                    if ((empty($existing['jam_masuk_aktual']) || $existing['jam_masuk_aktual'] == '00:00:00') && !empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] != '00:00:00') {
+                        $existing['jam_masuk_aktual'] = $l['jam_masuk_aktual'];
+                        $existing['status_masuk'] = $l['status_masuk'];
+                        $existing['kategori'] = $l['kategori'];
+                        $existing['menit_keterlambatan'] = $l['menit_keterlambatan'] ?? 0;
+                    }
+                    if ((empty($existing['jam_pulang_aktual']) || $existing['jam_pulang_aktual'] == '00:00:00') && !empty($l['jam_pulang_aktual']) && $l['jam_pulang_aktual'] != '00:00:00') {
+                        $existing['jam_pulang_aktual'] = $l['jam_pulang_aktual'];
+                        $existing['status_pulang'] = $l['status_pulang'];
+                    }
+                    $all_presensi[$nip][$tgl] = $existing;
+                }
+            }
+
+            // Super Fix: Tarik Hadir Apel dari apel_peserta (Kantor Bupati / Gabungan)
+            if ($db->tableExists('apel_peserta') && $db->tableExists('apel')) {
+                $attended_apels = $db->table('apel_peserta')
+                    ->select('apel_peserta.*, apel.tanggal, apel.jam_mulai, apel.nama_apel, pegawai.nip')
+                    ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                    ->join('pegawai', 'pegawai.id_pegawai = apel_peserta.id_pegawai')
+                    ->whereIn('apel_peserta.id_pegawai', $ids_pegawai)
+                    ->where('apel.tanggal >=', $tgl_awal_bulan)
+                    ->where('apel.tanggal <=', $tgl_akhir_bulan)
+                    ->where('apel_peserta.jam_absen IS NOT NULL')
+                    ->where("apel_peserta.jam_absen != ''")
+                    ->get()->getResultArray();
+
+                foreach ($attended_apels as $ap) {
+                    $nip = $ap['nip'];
+                    $tgl = $ap['tanggal'];
+                    $jam_absen_clean = (strlen($ap['jam_absen']) > 8) ? date('H:i:s', strtotime($ap['jam_absen'])) : $ap['jam_absen'];
+                    $jam_mulai_clean = !empty($ap['jam_mulai']) ? $ap['jam_mulai'] : '07:30:00';
+
+                    if (!isset($all_presensi[$nip][$tgl])) {
+                        $all_presensi[$nip][$tgl] = [
+                            'id_pegawai'            => $ap['id_pegawai'],
+                            'nip'                   => $nip,
+                            'tanggal'               => $tgl,
+                            'jam_masuk_aktual'      => $jam_absen_clean,
+                            'jam_masuk_seharusnya'  => $jam_mulai_clean,
+                            'jam_pulang_aktual'     => null,
+                            'jam_pulang_seharusnya' => '16:00:00',
+                            'status_masuk'          => 'Hadir (Apel)',
+                            'status_pulang'         => null,
+                            'kategori'              => 'Hadir',
+                            'menit_keterlambatan'   => 0,
+                            'deskripsi'             => 'Hadir apel: ' . $ap['nama_apel']
+                        ];
+                    } else {
+                        if (empty($all_presensi[$nip][$tgl]['jam_masuk_aktual']) || $all_presensi[$nip][$tgl]['jam_masuk_aktual'] == '00:00:00' || strtolower($all_presensi[$nip][$tgl]['kategori'] ?? '') === 'alpa') {
+                            $all_presensi[$nip][$tgl]['jam_masuk_aktual'] = $jam_absen_clean;
+                            $all_presensi[$nip][$tgl]['jam_masuk_seharusnya'] = $jam_mulai_clean;
+                            $all_presensi[$nip][$tgl]['status_masuk'] = 'Hadir (Apel)';
+                            $all_presensi[$nip][$tgl]['kategori'] = 'Hadir';
+                            $all_presensi[$nip][$tgl]['menit_keterlambatan'] = 0;
+                        }
+                    }
+                }
             }
         }
 
@@ -1911,12 +2101,14 @@ class Rekap extends BaseController
                         $is_full_day = true;
                     }
 
+                    $is_apel_pagi = (strpos($status_masuk, 'apel') !== false || strpos($kategori, 'apel') !== false || strpos($deskripsi, 'apel') !== false);
+
                     if (!$is_full_day) {
-                        if ($nama_hari_loop == 'senin' && (empty($l['jam_masuk_aktual']) || $l['jam_masuk_aktual'] == '00:00:00')) {
+                        if ($nama_hari_loop == 'senin' && !$is_apel_pagi && (empty($l['jam_masuk_aktual']) || $l['jam_masuk_aktual'] == '00:00:00')) {
                             $res['tdk']++;
                         }
 
-                        if (!$is_izin_pagi) {
+                        if (!$is_izin_pagi && !$is_apel_pagi) {
                             if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
                                 if (in_array($l['status_masuk'], ['Terlambat', 'Pembinaan', 'Teguran']) && !$is_cito) {
                                     $config_jam = $map_jadwal_full[$id_jam_aktif][$nama_hari_loop] ?? null;
@@ -1935,8 +2127,8 @@ class Rekap extends BaseController
                             }
                         }
 
-                        // Hitung Pulang Cepat (Abaikan Jika Izin Sore)
-                        if (!$is_izin_sore) {
+                        // Hitung Pulang Cepat (Abaikan Jika Izin Sore atau Hadir Apel Pagi)
+                        if (!$is_izin_sore && !$is_apel_pagi) {
                             if (empty($l['jam_pulang_aktual']) || $l['jam_pulang_aktual'] <= '04:00:00') {
                                 if ($tgl_loop < $hari_ini_global && !$is_cito) $res['pc4']++;
                             } else {
@@ -2717,7 +2909,71 @@ class Rekap extends BaseController
                     ->get()->getResultArray();
 
                 $presensi_map = [];
-                foreach ($presensi_raw as $pr) $presensi_map[$pr['nip']][$pr['tanggal']] = $pr;
+                foreach ($presensi_raw as $pr) {
+                    $nip = $pr['nip'];
+                    $tgl = $pr['tanggal'];
+                    if (!isset($presensi_map[$nip][$tgl])) {
+                        $presensi_map[$nip][$tgl] = $pr;
+                    } else {
+                        $existing = $presensi_map[$nip][$tgl];
+                        if ((empty($existing['jam_masuk_aktual']) || $existing['jam_masuk_aktual'] == '00:00:00') && !empty($pr['jam_masuk_aktual']) && $pr['jam_masuk_aktual'] != '00:00:00') {
+                            $existing['jam_masuk_aktual'] = $pr['jam_masuk_aktual'];
+                            $existing['status_masuk'] = $pr['status_masuk'];
+                            $existing['kategori'] = $pr['kategori'];
+                        }
+                        if ((empty($existing['jam_pulang_aktual']) || $existing['jam_pulang_aktual'] == '00:00:00') && !empty($pr['jam_pulang_aktual']) && $pr['jam_pulang_aktual'] != '00:00:00') {
+                            $existing['jam_pulang_aktual'] = $pr['jam_pulang_aktual'];
+                            $existing['status_pulang'] = $pr['status_pulang'];
+                        }
+                        $presensi_map[$nip][$tgl] = $existing;
+                    }
+                }
+
+                // Super Fix: Tarik Hadir Apel dari apel_peserta (Kantor Bupati / Gabungan)
+                if ($db->tableExists('apel_peserta') && $db->tableExists('apel') && !empty($ids_pegawai)) {
+                    $attended_apels = $db->table('apel_peserta')
+                        ->select('apel_peserta.*, apel.tanggal, apel.jam_mulai, apel.nama_apel, pegawai.nip')
+                        ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                        ->join('pegawai', 'pegawai.id_pegawai = apel_peserta.id_pegawai')
+                        ->whereIn('apel_peserta.id_pegawai', $ids_pegawai)
+                        ->where('apel.tanggal >=', $tgl_awal_bulan)
+                        ->where('apel.tanggal <=', $tgl_akhir_bulan)
+                        ->where('apel_peserta.jam_absen IS NOT NULL')
+                        ->where("apel_peserta.jam_absen != ''")
+                        ->get()->getResultArray();
+
+                    foreach ($attended_apels as $ap) {
+                        $nip = $ap['nip'];
+                        $tgl = $ap['tanggal'];
+                        $jam_absen_clean = (strlen($ap['jam_absen']) > 8) ? date('H:i:s', strtotime($ap['jam_absen'])) : $ap['jam_absen'];
+                        $jam_mulai_clean = !empty($ap['jam_mulai']) ? $ap['jam_mulai'] : '07:30:00';
+
+                        if (!isset($presensi_map[$nip][$tgl])) {
+                            $presensi_map[$nip][$tgl] = [
+                                'id_pegawai'            => $ap['id_pegawai'],
+                                'nip'                   => $nip,
+                                'tanggal'               => $tgl,
+                                'jam_masuk_aktual'      => $jam_absen_clean,
+                                'jam_masuk_seharusnya'  => $jam_mulai_clean,
+                                'jam_pulang_aktual'     => null,
+                                'jam_pulang_seharusnya' => '16:00:00',
+                                'status_masuk'          => 'Hadir (Apel)',
+                                'status_pulang'         => null,
+                                'kategori'              => 'Hadir',
+                                'menit_keterlambatan'   => 0,
+                                'deskripsi'             => 'Hadir apel: ' . $ap['nama_apel']
+                            ];
+                        } else {
+                            if (empty($presensi_map[$nip][$tgl]['jam_masuk_aktual']) || $presensi_map[$nip][$tgl]['jam_masuk_aktual'] == '00:00:00' || strtolower($presensi_map[$nip][$tgl]['kategori'] ?? '') === 'alpa') {
+                                $presensi_map[$nip][$tgl]['jam_masuk_aktual'] = $jam_absen_clean;
+                                $presensi_map[$nip][$tgl]['jam_masuk_seharusnya'] = $jam_mulai_clean;
+                                $presensi_map[$nip][$tgl]['status_masuk'] = 'Hadir (Apel)';
+                                $presensi_map[$nip][$tgl]['kategori'] = 'Hadir';
+                                $presensi_map[$nip][$tgl]['menit_keterlambatan'] = 0;
+                            }
+                        }
+                    }
+                }
             }
 
             $hari_ini = date('Y-m-d');

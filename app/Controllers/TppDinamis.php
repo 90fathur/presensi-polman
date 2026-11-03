@@ -243,7 +243,79 @@ class TppDinamis extends BaseController
             ->get()->getResultArray();
         $presensiMap = [];
         foreach ($presensiRows as $pr) {
-            $presensiMap[$pr['tanggal']] = $pr;
+            $tgl = $pr['tanggal'];
+            if (!isset($presensiMap[$tgl])) {
+                $presensiMap[$tgl] = $pr;
+            } else {
+                $existing = $presensiMap[$tgl];
+                if ((empty($existing['jam_masuk_aktual']) || $existing['jam_masuk_aktual'] == '00:00:00') && !empty($pr['jam_masuk_aktual']) && $pr['jam_masuk_aktual'] != '00:00:00') {
+                    $existing['jam_masuk_aktual'] = $pr['jam_masuk_aktual'];
+                    $existing['status_masuk'] = $pr['status_masuk'];
+                    $existing['kategori'] = $pr['kategori'];
+                    $existing['menit_keterlambatan'] = $pr['menit_keterlambatan'] ?? 0;
+                }
+                if ((empty($existing['jam_pulang_aktual']) || $existing['jam_pulang_aktual'] == '00:00:00') && !empty($pr['jam_pulang_aktual']) && $pr['jam_pulang_aktual'] != '00:00:00') {
+                    $existing['jam_pulang_aktual'] = $pr['jam_pulang_aktual'];
+                    $existing['status_pulang'] = $pr['status_pulang'];
+                }
+                $presensiMap[$tgl] = $existing;
+            }
+        }
+
+        // Ambil data Apel peserta (Hadir Apel & Tidak Hadir Apel)
+        if ($db->tableExists('apel_peserta') && $db->tableExists('apel')) {
+            $attended_apels = $db->table('apel_peserta')
+                ->select('apel_peserta.*, apel.tanggal, apel.jam_mulai, apel.nama_apel')
+                ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                ->where('apel_peserta.id_pegawai', $id_pegawai)
+                ->where('apel.tanggal >=', $tgl_awal)
+                ->where('apel.tanggal <=', $tgl_akhir)
+                ->where('apel_peserta.jam_absen IS NOT NULL')
+                ->where("apel_peserta.jam_absen != ''")
+                ->get()->getResultArray();
+
+            foreach ($attended_apels as $ap) {
+                $tgl = $ap['tanggal'];
+                $jam_absen_clean = (strlen($ap['jam_absen']) > 8) ? date('H:i:s', strtotime($ap['jam_absen'])) : $ap['jam_absen'];
+                $jam_mulai_clean = !empty($ap['jam_mulai']) ? $ap['jam_mulai'] : '07:30:00';
+
+                if (!isset($presensiMap[$tgl])) {
+                    $presensiMap[$tgl] = [
+                        'id_pegawai'            => $id_pegawai,
+                        'tanggal'               => $tgl,
+                        'jam_masuk_aktual'      => $jam_absen_clean,
+                        'jam_masuk_seharusnya'  => $jam_mulai_clean,
+                        'jam_pulang_aktual'     => null,
+                        'jam_pulang_seharusnya' => '16:00:00',
+                        'status_masuk'          => 'Hadir (Apel)',
+                        'status_pulang'         => null,
+                        'kategori'              => 'Hadir',
+                        'menit_keterlambatan'   => 0,
+                        'deskripsi'             => 'Hadir apel: ' . $ap['nama_apel']
+                    ];
+                } else {
+                    if (empty($presensiMap[$tgl]['jam_masuk_aktual']) || $presensiMap[$tgl]['jam_masuk_aktual'] == '00:00:00' || strtolower($presensiMap[$tgl]['kategori'] ?? '') === 'alpa') {
+                        $presensiMap[$tgl]['jam_masuk_aktual'] = $jam_absen_clean;
+                        $presensiMap[$tgl]['jam_masuk_seharusnya'] = $jam_mulai_clean;
+                        $presensiMap[$tgl]['status_masuk'] = 'Hadir (Apel)';
+                        $presensiMap[$tgl]['kategori'] = 'Hadir';
+                        $presensiMap[$tgl]['menit_keterlambatan'] = 0;
+                    }
+                }
+            }
+
+            // Hitung $ta (Tidak Hadir Apel)
+            $unattended_count = $db->table('apel_peserta')
+                ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                ->where('apel_peserta.id_pegawai', $id_pegawai)
+                ->where('apel.tanggal >=', $tgl_awal)
+                ->where('apel.tanggal <=', $end_loop)
+                ->groupStart()
+                    ->where('apel_peserta.jam_absen', null)
+                    ->orWhere('apel_peserta.jam_absen', '')
+                ->groupEnd()
+                ->countAllResults();
+            $ta = (int)$unattended_count;
         }
 
         // Pengajuan Izin/Sakit/Cuti
@@ -267,7 +339,7 @@ class TppDinamis extends BaseController
         // Hitung akumulasi disiplin
         $p1 = 0; $p2 = 0; $p3 = 0; $p4 = 0;
         $pc1 = 0; $pc2 = 0; $pc3 = 0; $pc4 = 0;
-        $alpa = 0; $tdk = 0; $ta = 0; $hadir = 0; $hari_kerja = 0;
+        $alpa = 0; $tdk = 0; $hadir = 0; $hari_kerja = 0;
 
         $curTime = strtotime($tgl_awal);
         $endTime = strtotime($end_loop);
@@ -286,31 +358,47 @@ class TppDinamis extends BaseController
                     $l = $presensiMap[$tglStr];
                     $hadir++;
                     $kat = strtolower(trim((string)($l['kategori'] ?? '')));
+                    $status_masuk = $l['status_masuk'] ?? '';
+                    $deskripsi = strtolower($l['deskripsi'] ?? '');
+                    $is_apel_pagi = (strpos($status_masuk, 'Apel') !== false || strpos($kat, 'apel') !== false || strpos($deskripsi, 'apel') !== false);
 
                     if ($kat === 'alpa' || ($l['status_verifikasi'] ?? '') === 'Dianulir') {
                         $alpa++;
                     } else {
-                        // Keterlambatan P1 s.d P4
-                        if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
-                            $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';
-                            if ($l['jam_masuk_aktual'] > $jam_seharusnya) {
-                                $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
-                                $menit = floor($selisih / 60);
-                                if ($menit >= 1 && $menit <= 30) $p1++;
-                                elseif ($menit >= 31 && $menit <= 60) $p2++;
-                                elseif ($menit >= 61 && $menit <= 90) $p3++;
-                                elseif ($menit > 90) $p4++;
+                        // Keterlambatan P1 s.d P4 (dengan toleransi 45 menit & bebas penalti jika Hadir Apel atau Cukup Baik)
+                        if (!$is_apel_pagi) {
+                            if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
+                                if (in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran']) || (isset($l['menit_keterlambatan']) && (int)$l['menit_keterlambatan'] > 45)) {
+                                    $menit_telat = max(0, ((int)($l['menit_keterlambatan'] ?? 0)) - 45);
+                                    if ($menit_telat == 0 && in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran'])) {
+                                        $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';
+                                        $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
+                                        $menit_telat = max(0, floor($selisih / 60) - 45);
+                                    }
+                                    if ($menit_telat >= 1 && $menit_telat <= 30) $p1++;
+                                    elseif ($menit_telat >= 31 && $menit_telat <= 60) $p2++;
+                                    elseif ($menit_telat >= 61 && $menit_telat <= 90) $p3++;
+                                    elseif ($menit_telat > 90) $p4++;
+                                }
+                            } else {
+                                if ($tglStr < $hari_ini) $p4++;
                             }
                         }
 
-                        // Pulang Cepat Pc1 s.d Pc4
-                        if (!empty($l['jam_pulang_seharusnya']) && !empty($l['jam_pulang_aktual']) && $l['jam_pulang_aktual'] < $l['jam_pulang_seharusnya']) {
-                            $selisih = strtotime($l['jam_pulang_seharusnya']) - strtotime($l['jam_pulang_aktual']);
-                            $menit_pc = floor($selisih / 60);
-                            if ($menit_pc >= 1 && $menit_pc <= 30) $pc1++;
-                            elseif ($menit_pc >= 31 && $menit_pc <= 60) $pc2++;
-                            elseif ($menit_pc >= 61 && $menit_pc <= 90) $pc3++;
-                            elseif ($menit_pc > 90) $pc4++;
+                        // Pulang Cepat Pc1 s.d Pc4 (Bebas Penalti Jika Hadir Apel)
+                        if (!$is_apel_pagi) {
+                            if (empty($l['jam_pulang_aktual']) || $l['jam_pulang_aktual'] <= '04:00:00') {
+                                if ($tglStr < $hari_ini) $pc4++;
+                            } else {
+                                if (!empty($l['jam_pulang_seharusnya']) && $l['jam_pulang_aktual'] < $l['jam_pulang_seharusnya']) {
+                                    $selisih = strtotime($l['jam_pulang_seharusnya']) - strtotime($l['jam_pulang_aktual']);
+                                    $menit_pc = floor($selisih / 60);
+                                    if ($menit_pc >= 1 && $menit_pc <= 30) $pc1++;
+                                    elseif ($menit_pc >= 31 && $menit_pc <= 60) $pc2++;
+                                    elseif ($menit_pc >= 61 && $menit_pc <= 90) $pc3++;
+                                    elseif ($menit_pc > 90) $pc4++;
+                                }
+                            }
                         }
                     }
                 } else {
@@ -812,10 +900,77 @@ class TppDinamis extends BaseController
                         ->where('YEAR(tanggal)', $tahun)
                         ->get()->getResultArray();
                     foreach ($logs_raw as $l) {
-                        $all_presensi[$l['nip']][$l['tanggal']] = $l;
+                        $nip = $l['nip'];
+                        $tgl = $l['tanggal'];
+                        if (!isset($all_presensi[$nip][$tgl])) {
+                            $all_presensi[$nip][$tgl] = $l;
+                        } else {
+                            $existing = $all_presensi[$nip][$tgl];
+                            if ((empty($existing['jam_masuk_aktual']) || $existing['jam_masuk_aktual'] == '00:00:00') && !empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] != '00:00:00') {
+                                $existing['jam_masuk_aktual'] = $l['jam_masuk_aktual'];
+                                $existing['status_masuk'] = $l['status_masuk'];
+                                $existing['kategori'] = $l['kategori'];
+                                $existing['menit_keterlambatan'] = $l['menit_keterlambatan'] ?? 0;
+                            }
+                            if ((empty($existing['jam_pulang_aktual']) || $existing['jam_pulang_aktual'] == '00:00:00') && !empty($l['jam_pulang_aktual']) && $l['jam_pulang_aktual'] != '00:00:00') {
+                                $existing['jam_pulang_aktual'] = $l['jam_pulang_aktual'];
+                                $existing['status_pulang'] = $l['status_pulang'];
+                            }
+                            $all_presensi[$nip][$tgl] = $existing;
+                        }
                     }
                 } catch (\Throwable $e) {
                     log_message('error', 'Presensi query error: ' . $e->getMessage());
+                }
+            }
+
+            // Super Fix: Tarik Hadir Apel dari apel_peserta (Kantor Bupati / Gabungan)
+            if ($db->tableExists('apel_peserta') && $db->tableExists('apel') && !empty($ids_pegawai)) {
+                try {
+                    $attended_apels = $db->table('apel_peserta')
+                        ->select('apel_peserta.*, apel.tanggal, apel.jam_mulai, apel.nama_apel, pegawai.nip')
+                        ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                        ->join('pegawai', 'pegawai.id_pegawai = apel_peserta.id_pegawai')
+                        ->whereIn('apel_peserta.id_pegawai', $ids_pegawai)
+                        ->where('apel.tanggal >=', $tgl_awal_bulan)
+                        ->where('apel.tanggal <=', $tgl_akhir_bulan)
+                        ->where('apel_peserta.jam_absen IS NOT NULL')
+                        ->where("apel_peserta.jam_absen != ''")
+                        ->get()->getResultArray();
+
+                    foreach ($attended_apels as $ap) {
+                        $nip = $ap['nip'];
+                        $tgl = $ap['tanggal'];
+                        $jam_absen_clean = (strlen($ap['jam_absen']) > 8) ? date('H:i:s', strtotime($ap['jam_absen'])) : $ap['jam_absen'];
+                        $jam_mulai_clean = !empty($ap['jam_mulai']) ? $ap['jam_mulai'] : '07:30:00';
+
+                        if (!isset($all_presensi[$nip][$tgl])) {
+                            $all_presensi[$nip][$tgl] = [
+                                'id_pegawai'            => $ap['id_pegawai'],
+                                'nip'                   => $nip,
+                                'tanggal'               => $tgl,
+                                'jam_masuk_aktual'      => $jam_absen_clean,
+                                'jam_masuk_seharusnya'  => $jam_mulai_clean,
+                                'jam_pulang_aktual'     => null,
+                                'jam_pulang_seharusnya' => '16:00:00',
+                                'status_masuk'          => 'Hadir (Apel)',
+                                'status_pulang'         => null,
+                                'kategori'              => 'Hadir',
+                                'menit_keterlambatan'   => 0,
+                                'deskripsi'             => 'Hadir apel: ' . $ap['nama_apel']
+                            ];
+                        } else {
+                            if (empty($all_presensi[$nip][$tgl]['jam_masuk_aktual']) || $all_presensi[$nip][$tgl]['jam_masuk_aktual'] == '00:00:00' || strtolower($all_presensi[$nip][$tgl]['kategori'] ?? '') === 'alpa') {
+                                $all_presensi[$nip][$tgl]['jam_masuk_aktual'] = $jam_absen_clean;
+                                $all_presensi[$nip][$tgl]['jam_masuk_seharusnya'] = $jam_mulai_clean;
+                                $all_presensi[$nip][$tgl]['status_masuk'] = 'Hadir (Apel)';
+                                $all_presensi[$nip][$tgl]['kategori'] = 'Hadir';
+                                $all_presensi[$nip][$tgl]['menit_keterlambatan'] = 0;
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    log_message('error', 'Attended apel query error: ' . $e->getMessage());
                 }
             }
 
@@ -949,30 +1104,45 @@ class TppDinamis extends BaseController
                         $is_full_day = true;
                     }
 
-                    if (!$is_full_day) {
-                        // Keterlambatan P1 s.d P4
-                        if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
-                            $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';
-                            if ($l['jam_masuk_aktual'] > $jam_seharusnya) {
-                                $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
-                                $menit_telat = floor($selisih / 60);
+                    $status_masuk = $l['status_masuk'] ?? '';
+                    $is_apel_pagi = (strpos($status_masuk, 'Apel') !== false || strpos($kategori, 'apel') !== false || strpos($deskripsi, 'apel') !== false);
 
-                                if ($menit_telat >= 1 && $menit_telat <= 30) $res['p1']++;
-                                elseif ($menit_telat >= 31 && $menit_telat <= 60) $res['p2']++;
-                                elseif ($menit_telat >= 61 && $menit_telat <= 90) $res['p3']++;
-                                elseif ($menit_telat > 90) $res['p4']++;
+                    if (!$is_full_day) {
+                        // Keterlambatan P1 s.d P4 (dengan toleransi 45 menit & bebas penalti jika Hadir Apel atau Cukup Baik)
+                        if (!$is_apel_pagi) {
+                            if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
+                                if (in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran']) || (isset($l['menit_keterlambatan']) && (int)$l['menit_keterlambatan'] > 45)) {
+                                    $menit_telat = max(0, ((int)($l['menit_keterlambatan'] ?? 0)) - 45);
+                                    if ($menit_telat == 0 && in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran'])) {
+                                        $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';
+                                        $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
+                                        $menit_telat = max(0, floor($selisih / 60) - 45);
+                                    }
+                                    if ($menit_telat >= 1 && $menit_telat <= 30) $res['p1']++;
+                                    elseif ($menit_telat >= 31 && $menit_telat <= 60) $res['p2']++;
+                                    elseif ($menit_telat >= 61 && $menit_telat <= 90) $res['p3']++;
+                                    elseif ($menit_telat > 90) $res['p4']++;
+                                }
+                            } else {
+                                if ($tgl_loop < $hari_ini_global) $res['p4']++;
                             }
                         }
 
-                        // Pulang Cepat Pc1 s.d Pc4
-                        if (!empty($l['jam_pulang_seharusnya']) && !empty($l['jam_pulang_aktual']) && $l['jam_pulang_aktual'] < $l['jam_pulang_seharusnya']) {
-                            $selisih = strtotime($l['jam_pulang_seharusnya']) - strtotime($l['jam_pulang_aktual']);
-                            $menit_pc = floor($selisih / 60);
+                        // Pulang Cepat Pc1 s.d Pc4 (Bebas Penalti Jika Hadir Apel)
+                        if (!$is_apel_pagi) {
+                            if (empty($l['jam_pulang_aktual']) || $l['jam_pulang_aktual'] <= '04:00:00') {
+                                if ($tgl_loop < $hari_ini_global) $res['pc4']++;
+                            } else {
+                                if (!empty($l['jam_pulang_seharusnya']) && $l['jam_pulang_aktual'] < $l['jam_pulang_seharusnya']) {
+                                    $selisih = strtotime($l['jam_pulang_seharusnya']) - strtotime($l['jam_pulang_aktual']);
+                                    $menit_pc = floor($selisih / 60);
 
-                            if ($menit_pc >= 1 && $menit_pc <= 30) $res['pc1']++;
-                            elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
-                            elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
-                            elseif ($menit_pc > 90) $res['pc4']++;
+                                    if ($menit_pc >= 1 && $menit_pc <= 30) $res['pc1']++;
+                                    elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
+                                    elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
+                                    elseif ($menit_pc > 90) $res['pc4']++;
+                                }
+                            }
                         }
                     }
                 } else {

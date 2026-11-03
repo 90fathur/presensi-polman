@@ -942,6 +942,25 @@ class Pwa extends BaseController
                 ->where('apel.tanggal', $tanggal)
                 ->get()->getRow();
 
+            if (!$cek_apel) {
+                // Periksa apakah ada kegiatan apel aktif hari ini di tabel apel (misal Apel Gabungan di Kantor Bupati)
+                $res_apel_umum = $this->db->table('apel')->where('tanggal', $tanggal)->orderBy('id_apel', 'DESC')->get();
+                $ev_umum = $res_apel_umum ? $res_apel_umum->getRow() : null;
+                if ($ev_umum) {
+                    $cek_apel = (object)[
+                        'id_apel'    => $ev_umum->id_apel,
+                        'id_pegawai' => $id_pegawai,
+                        'jam_mulai'  => $ev_umum->jam_mulai,
+                        'jam_akhir'  => $ev_umum->jam_akhir,
+                        'latitude'   => $ev_umum->latitude,
+                        'longitude'  => $ev_umum->longitude,
+                        'radius'     => $ev_umum->radius,
+                        'nama_apel'  => $ev_umum->nama_apel,
+                        'jam_absen'  => null
+                    ];
+                }
+            }
+
             $cek_presensi_apel_prev = $this->db->table('presensi')->where(['id_pegawai' => $id_pegawai, 'tanggal' => $tanggal])->get()->getRow();
             $sudah_hadir_apel_hari_ini = ($cek_presensi_apel_prev && strpos($cek_presensi_apel_prev->status_masuk ?? '', 'Apel') !== false && !empty($cek_presensi_apel_prev->jam_masuk_aktual) && $cek_presensi_apel_prev->jam_masuk_aktual !== '00:00:00');
 
@@ -959,8 +978,20 @@ class Pwa extends BaseController
                     $is_vip_apel = in_array($user_info->nip, $vip_nips);
 
                     if ($jarak_apel <= $batas_radius_apel || $is_vip_apel) {
-                        // AUTO-PROCESS ABSEN APEL
-                        $this->db->table('apel_peserta')->where(['id_apel' => $cek_apel->id_apel, 'id_pegawai' => $id_pegawai])->update(['jam_absen' => $jam_sekarang]);
+                        // AUTO-PROCESS ABSEN APEL (UPSERT ke apel_peserta)
+                        $cek_ada_p = $this->db->table('apel_peserta')->where(['id_apel' => $cek_apel->id_apel, 'id_pegawai' => $id_pegawai])->get()->getRow();
+                        if ($cek_ada_p) {
+                            $this->db->table('apel_peserta')->where(['id_apel' => $cek_apel->id_apel, 'id_pegawai' => $id_pegawai])->update(['jam_absen' => $jam_sekarang]);
+                        } else {
+                            $this->db->table('apel_peserta')->insert([
+                                'id_apel'    => $cek_apel->id_apel,
+                                'id_pegawai' => $id_pegawai,
+                                'nip'        => $user_info->nip,
+                                'id_opd'     => $user_info->id_opd,
+                                'jam_absen'  => $jam_sekarang,
+                                'created_at' => date('Y-m-d H:i:s')
+                            ]);
+                        }
 
                         $cek_plotting = $this->getPlottingShiftPegawai($id_pegawai, $tanggal);
                         $id_final_jam = ($cek_plotting) ? $cek_plotting->id_jam_kerja : ($user_info->jam_opd ?? 1);
@@ -1121,6 +1152,19 @@ class Pwa extends BaseController
                         $nama_lokasi_absen = "Kantor Induk";
                     }
                 }
+
+                // Cek Pusat Kantor Bupati / Sekretariat Daerah Polewali Mandar (Pusat Pemkab)
+                if (!$is_dalam_radius) {
+                    $lat_bupati = -3.4076837;
+                    $lng_bupati = 119.3110216;
+                    $jarak_bupati = $this->calculate_distance($lat_user, $lng_user, $lat_bupati, $lng_bupati);
+                    if ($jarak_bupati < $jarak_terdekat) $jarak_terdekat = $jarak_bupati;
+                    if ($jarak_bupati <= 150) {
+                        $is_dalam_radius = true;
+                        $nama_lokasi_absen = "Kantor Bupati Polewali Mandar";
+                    }
+                }
+
                 if (!$is_dalam_radius) {
                     $pesan_jarak = ($jarak_terdekat > 1000000) ? "Lokasi tidak valid." : round($jarak_terdekat) . " meter";
                     throw new \Exception("Di luar radius! Jarak Anda: " . $pesan_jarak);
