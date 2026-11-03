@@ -235,9 +235,12 @@ class TppDinamis extends BaseController
         $liburRows = $db->table('hari_libur')->where('tanggal >=', $tgl_awal)->where('tanggal <=', $tgl_akhir)->get()->getResultArray();
         $liburDates = array_column($liburRows, 'tanggal');
 
-        // Presensi logs
+        // Presensi logs (Gunakan groupStart id_pegawai & nip agar konsisten)
         $presensiRows = $db->table('presensi')
-            ->where('id_pegawai', $id_pegawai)
+            ->groupStart()
+                ->where('id_pegawai', $id_pegawai)
+                ->orWhere('nip', $nip)
+            ->groupEnd()
             ->where('tanggal >=', $tgl_awal)
             ->where('tanggal <=', $tgl_akhir)
             ->get()->getResultArray();
@@ -263,11 +266,15 @@ class TppDinamis extends BaseController
         }
 
         // Ambil data Apel peserta (Hadir Apel & Tidak Hadir Apel)
+        $raw_unattended_apel = [];
         if ($db->tableExists('apel_peserta') && $db->tableExists('apel')) {
             $attended_apels = $db->table('apel_peserta')
                 ->select('apel_peserta.*, apel.tanggal, apel.jam_mulai, apel.nama_apel')
                 ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
-                ->where('apel_peserta.id_pegawai', $id_pegawai)
+                ->groupStart()
+                    ->where('apel_peserta.id_pegawai', $id_pegawai)
+                    ->orWhere('apel_peserta.nip', $nip)
+                ->groupEnd()
                 ->where('apel.tanggal >=', $tgl_awal)
                 ->where('apel.tanggal <=', $tgl_akhir)
                 ->where('apel_peserta.jam_absen IS NOT NULL')
@@ -282,6 +289,7 @@ class TppDinamis extends BaseController
                 if (!isset($presensiMap[$tgl])) {
                     $presensiMap[$tgl] = [
                         'id_pegawai'            => $id_pegawai,
+                        'nip'                   => $nip,
                         'tanggal'               => $tgl,
                         'jam_masuk_aktual'      => $jam_absen_clean,
                         'jam_masuk_seharusnya'  => $jam_mulai_clean,
@@ -304,18 +312,25 @@ class TppDinamis extends BaseController
                 }
             }
 
-            // Hitung $ta (Tidak Hadir Apel)
-            $unattended_count = $db->table('apel_peserta')
+            // Catat daftar tanggal apel yang tidak dihadiri di lokasi apel
+            $unattended_list = $db->table('apel_peserta')
+                ->select('apel.tanggal')
                 ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
-                ->where('apel_peserta.id_pegawai', $id_pegawai)
+                ->groupStart()
+                    ->where('apel_peserta.id_pegawai', $id_pegawai)
+                    ->orWhere('apel_peserta.nip', $nip)
+                ->groupEnd()
                 ->where('apel.tanggal >=', $tgl_awal)
                 ->where('apel.tanggal <=', $end_loop)
                 ->groupStart()
                     ->where('apel_peserta.jam_absen', null)
                     ->orWhere('apel_peserta.jam_absen', '')
                 ->groupEnd()
-                ->countAllResults();
-            $ta = (int)$unattended_count;
+                ->get()->getResultArray();
+
+            foreach ($unattended_list as $ua) {
+                $raw_unattended_apel[] = $ua['tanggal'];
+            }
         }
 
         // Pengajuan Izin/Sakit/Cuti
@@ -372,6 +387,20 @@ class TppDinamis extends BaseController
         }
 
         // Hitung akumulasi disiplin
+        // Hitung $ta (HANYA jika pegawai TIDAK hadir apel DAN TIDAK hadir di kantor pada hari itu serta tidak ada izin/cuti)
+        $ta = 0;
+        foreach ($raw_unattended_apel as $tgl_apel) {
+            $hadir_kantor = isset($presensiMap[$tgl_apel]) &&
+                !empty($presensiMap[$tgl_apel]['jam_masuk_aktual']) &&
+                $presensiMap[$tgl_apel]['jam_masuk_aktual'] != '00:00:00' &&
+                strtolower($presensiMap[$tgl_apel]['kategori'] ?? '') !== 'alpa';
+            $ada_izin = isset($izinDates[$tgl_apel]);
+
+            if (!$hadir_kantor && !$ada_izin) {
+                $ta++;
+            }
+        }
+
         $p1 = 0; $p2 = 0; $p3 = 0; $p4 = 0;
         $pc1 = 0; $pc2 = 0; $pc3 = 0; $pc4 = 0;
         $alpa = 0; $tdk = 0; $hadir = 0; $hari_kerja = 0;
@@ -429,7 +458,7 @@ class TppDinamis extends BaseController
                     // Keterlambatan P1 s.d P4 (dengan toleransi 45 menit & bebas penalti jika Hadir Apel atau Cukup Baik)
                     if (!$is_apel_pagi) {
                         if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
-                            if (in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran']) || (isset($l['menit_keterlambatan']) && (int)$l['menit_keterlambatan'] > 45)) {
+                            if (in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran'])) {
                                 $menit_telat = max(0, ((int)($l['menit_keterlambatan'] ?? 0)) - 45);
                                 if ($menit_telat == 0 && in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran'])) {
                                     $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';
@@ -474,6 +503,20 @@ class TppDinamis extends BaseController
         $persen_pot_disiplin = ($p1 * 0.5) + ($p2 * 1.0) + ($p3 * 1.25) + ($p4 * 1.5) +
                                ($pc1 * 0.5) + ($pc2 * 1.0) + ($pc3 * 1.25) + ($pc4 * 1.5) +
                                ($alpa * 3.0) + ($tdk * 0.5) + ($ta * 2.0);
+
+        // Buat rincian item potongan disiplin agar transparan di Mobile App
+        $rincian_disiplin = [];
+        if ($p1 > 0) $rincian_disiplin[] = "Terlambat 1-30 mnt (P1): {$p1}x (-" . ($p1 * 0.5) . "%)";
+        if ($p2 > 0) $rincian_disiplin[] = "Terlambat 31-60 mnt (P2): {$p2}x (-" . ($p2 * 1.0) . "%)";
+        if ($p3 > 0) $rincian_disiplin[] = "Terlambat 61-90 mnt (P3): {$p3}x (-" . ($p3 * 1.25) . "%)";
+        if ($p4 > 0) $rincian_disiplin[] = "Terlambat >90 mnt (P4): {$p4}x (-" . ($p4 * 1.5) . "%)";
+        if ($pc1 > 0) $rincian_disiplin[] = "Pulang Cepat 1-30 mnt (Pc1): {$pc1}x (-" . ($pc1 * 0.5) . "%)";
+        if ($pc2 > 0) $rincian_disiplin[] = "Pulang Cepat 31-60 mnt (Pc2): {$pc2}x (-" . ($pc2 * 1.0) . "%)";
+        if ($pc3 > 0) $rincian_disiplin[] = "Pulang Cepat 61-90 mnt (Pc3): {$pc3}x (-" . ($pc3 * 1.25) . "%)";
+        if ($pc4 > 0) $rincian_disiplin[] = "Pulang Cepat >90 mnt / Tanpa Pulang (Pc4): {$pc4}x (-" . ($pc4 * 1.5) . "%)";
+        if ($alpa > 0) $rincian_disiplin[] = "Alpa / Tanpa Keterangan: {$alpa}x (-" . ($alpa * 3.0) . "%)";
+        if ($tdk > 0) $rincian_disiplin[] = "Tidak Apel Senin / Dialog Kinerja: {$tdk}x (-" . ($tdk * 0.5) . "%)";
+        if ($ta > 0) $rincian_disiplin[] = "Tidak Apel Gabungan (TA): {$ta}x (-" . ($ta * 2.0) . "%)";
 
         // 4. Perhitungan TPP Dinamis (Beban Kerja 60% & Disiplin 40%)
         $jumlah_pagu = $tpp_bk + $tpp_kk;
@@ -548,13 +591,15 @@ class TppDinamis extends BaseController
             'tarif_pph_persen'      => ($tarif_pph * 100) . '%',
             'nominal_pph21'         => round($nominal_pph21),
             'nominal_pph21_format'  => 'Rp ' . number_format($nominal_pph21, 0, ',', '.'),
+            'rincian_disiplin'      => $rincian_disiplin,
             'wke'                   => $wke,
             'pot_detail'            => [
                 'hari_kerja' => $hari_kerja,
                 'hadir'      => $hadir,
                 'p1' => $p1, 'p2' => $p2, 'p3' => $p3, 'p4' => $p4,
                 'pc1' => $pc1, 'pc2' => $pc2, 'pc3' => $pc3, 'pc4' => $pc4,
-                'alpa' => $alpa, 'tdk' => $tdk, 'ta' => $ta
+                'alpa' => $alpa, 'tdk' => $tdk, 'ta' => $ta,
+                'rincian' => $rincian_disiplin
             ]
         ];
     }
@@ -974,23 +1019,24 @@ class TppDinamis extends BaseController
                 }
             }
 
-            // Apel / Upacara tidak hadir
+            // Apel / Upacara data ketidakhadiran apel di lokasi apel
+            $raw_unattended_apel_opd = [];
             if ($db->tableExists('apel_peserta') && $db->tableExists('apel')) {
                 try {
                     $unattended_apel = $db->table('apel_peserta')
-                        ->select('apel_peserta.id_pegawai, COUNT(*) as ta_count')
+                        ->select('apel_peserta.id_pegawai, apel.tanggal, pegawai.nip')
                         ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                        ->join('pegawai', 'pegawai.id_pegawai = apel_peserta.id_pegawai')
                         ->whereIn('apel_peserta.id_pegawai', $ids_pegawai)
                         ->where('apel.tanggal >=', $tgl_awal_bulan)
                         ->where('apel.tanggal <=', $endDate)
                         ->groupStart()
-                        ->where('apel_peserta.jam_absen', null)
-                        ->orWhere('apel_peserta.jam_absen', '')
+                            ->where('apel_peserta.jam_absen', null)
+                            ->orWhere('apel_peserta.jam_absen', '')
                         ->groupEnd()
-                        ->groupBy('apel_peserta.id_pegawai')
                         ->get()->getResultArray();
                     foreach ($unattended_apel as $ua) {
-                        $map_ta[$ua['id_pegawai']] = (int)$ua['ta_count'];
+                        $raw_unattended_apel_opd[$ua['id_pegawai']][$ua['tanggal']] = $ua['nip'];
                     }
                 } catch (\Throwable $e) {
                     log_message('error', 'Apel check error: ' . $e->getMessage());
@@ -1132,6 +1178,23 @@ class TppDinamis extends BaseController
             }
         }
 
+        // Hitung TA (Tidak Hadir Apel): HANYA jika pegawai TIDAK hadir apel DAN TIDAK hadir di kantor pada hari itu serta tidak ada izin/cuti
+        $map_ta = [];
+        foreach ($raw_unattended_apel_opd as $id_pgw => $tgl_map) {
+            foreach ($tgl_map as $tgl_apel => $nip_pgw) {
+                $hadir_kantor = isset($all_presensi[$nip_pgw][$tgl_apel]) &&
+                    !empty($all_presensi[$nip_pgw][$tgl_apel]['jam_masuk_aktual']) &&
+                    $all_presensi[$nip_pgw][$tgl_apel]['jam_masuk_aktual'] != '00:00:00' &&
+                    strtolower($all_presensi[$nip_pgw][$tgl_apel]['kategori'] ?? '') != 'alpa';
+                $ada_izin = isset($map_izin_full[$nip_pgw][$tgl_apel]) || (isset($map_cuti[$id_pgw]) && in_array($tgl_apel, $map_cuti[$id_pgw]));
+
+                if (!$hadir_kantor && !$ada_izin) {
+                    if (!isset($map_ta[$id_pgw])) $map_ta[$id_pgw] = 0;
+                    $map_ta[$id_pgw]++;
+                }
+            }
+        }
+
         $potongan_map = [];
 
         foreach ($pegawai as $pgw) {
@@ -1232,7 +1295,7 @@ class TppDinamis extends BaseController
                         // Keterlambatan P1 s.d P4 (dengan toleransi 45 menit & bebas penalti jika Hadir Apel atau Cukup Baik)
                         if (!$is_apel_pagi) {
                             if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
-                                if (in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran']) || (isset($l['menit_keterlambatan']) && (int)$l['menit_keterlambatan'] > 45)) {
+                                if (in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran']) && !$is_cito) {
                                     $menit_telat = max(0, ((int)($l['menit_keterlambatan'] ?? 0)) - 45);
                                     if ($menit_telat == 0 && in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran'])) {
                                         $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';

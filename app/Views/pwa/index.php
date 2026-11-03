@@ -2394,6 +2394,16 @@ $hp_kosong = empty($pegawai['nomor_hp']);
                                 <span class="text-muted">Potongan Presensi Realtime</span>
                                 <span class="badge bg-danger-subtle text-danger border border-danger-subtle">-<?= esc($tpp_info['persen_pot_disiplin'] ?? 0) ?>%</span>
                             </div>
+                            <?php if (!empty($tpp_info['rincian_disiplin'])): ?>
+                                <div class="p-2 my-2 rounded bg-white border border-danger-subtle text-start" style="font-size: 0.68rem;">
+                                    <div class="fw-bold text-danger mb-1"><i class="fas fa-exclamation-circle me-1"></i>Rincian Pengurangan Disiplin:</div>
+                                    <ul class="mb-0 ps-3 text-muted">
+                                        <?php foreach ($tpp_info['rincian_disiplin'] as $rd): ?>
+                                            <li><span class="text-danger fw-semibold"><?= esc($rd) ?></span></li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
                             <div class="d-flex justify-content-between mb-1">
                                 <span class="text-muted">Nominal Pengurangan</span>
                                 <span class="text-danger font-num">- <?= esc($tpp_info['nominal_pot_disiplin_format'] ?? 'Rp 0') ?></span>

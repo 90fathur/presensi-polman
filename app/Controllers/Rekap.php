@@ -1279,23 +1279,24 @@ class Rekap extends BaseController
             $map_plotting = [];
             $map_izin_full = [];
             $map_izin_partial = [];
-            $map_ta = [];
-
+            $raw_unattended_apel = [];
             if (!empty($ids_pegawai)) {
-                $unattended_apel = $db->table('apel_peserta')
-                    ->select('apel_peserta.id_pegawai, COUNT(*) as ta_count')
-                    ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
-                    ->whereIn('apel_peserta.id_pegawai', $ids_pegawai)
-                    ->where('apel.tanggal >=', $tgl_awal_bulan)
-                    ->where('apel.tanggal <=', $endDate)
-                    ->groupStart()
-                    ->where('apel_peserta.jam_absen', null)
-                    ->orWhere('apel_peserta.jam_absen', '')
-                    ->groupEnd()
-                    ->groupBy('apel_peserta.id_pegawai')
-                    ->get()->getResultArray();
-                foreach ($unattended_apel as $ua) {
-                    $map_ta[$ua['id_pegawai']] = $ua['ta_count'];
+                if ($db->tableExists('apel_peserta') && $db->tableExists('apel')) {
+                    $unattended_apel = $db->table('apel_peserta')
+                        ->select('apel_peserta.id_pegawai, apel.tanggal, pegawai.nip')
+                        ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                        ->join('pegawai', 'pegawai.id_pegawai = apel_peserta.id_pegawai')
+                        ->whereIn('apel_peserta.id_pegawai', $ids_pegawai)
+                        ->where('apel.tanggal >=', $tgl_awal_bulan)
+                        ->where('apel.tanggal <=', $endDate)
+                        ->groupStart()
+                            ->where('apel_peserta.jam_absen', null)
+                            ->orWhere('apel_peserta.jam_absen', '')
+                        ->groupEnd()
+                        ->get()->getResultArray();
+                    foreach ($unattended_apel as $ua) {
+                        $raw_unattended_apel[$ua['id_pegawai']][$ua['tanggal']] = $ua['nip'];
+                    }
                 }
                 $builder_plot = $db->table('plotting_shift')->whereIn('id_pegawai', $ids_pegawai);
                 if ($db->fieldExists('tanggal_mulai', 'plotting_shift')) {
@@ -1426,6 +1427,23 @@ class Rekap extends BaseController
                                 $all_presensi[$nip][$tgl]['menit_keterlambatan'] = 0;
                             }
                         }
+                    }
+                }
+            }
+
+            // Hitung TA (Tidak Hadir Apel): HANYA jika pegawai TIDAK hadir apel DAN TIDAK hadir di kantor pada hari itu
+            $map_ta = [];
+            foreach ($raw_unattended_apel as $id_pgw => $tgl_map) {
+                foreach ($tgl_map as $tgl_apel => $nip_pgw) {
+                    $hadir_kantor = isset($all_presensi[$nip_pgw][$tgl_apel]) &&
+                        !empty($all_presensi[$nip_pgw][$tgl_apel]['jam_masuk_aktual']) &&
+                        $all_presensi[$nip_pgw][$tgl_apel]['jam_masuk_aktual'] != '00:00:00' &&
+                        strtolower($all_presensi[$nip_pgw][$tgl_apel]['kategori'] ?? '') != 'alpa';
+                    $ada_izin = isset($map_izin_full[$nip_pgw][$tgl_apel]) || (isset($map_cuti[$id_pgw]) && in_array($tgl_apel, $map_cuti[$id_pgw]));
+
+                    if (!$hadir_kantor && !$ada_izin) {
+                        if (!isset($map_ta[$id_pgw])) $map_ta[$id_pgw] = 0;
+                        $map_ta[$id_pgw]++;
                     }
                 }
             }
@@ -1831,24 +1849,27 @@ class Rekap extends BaseController
         $is_nakes_map = [];
         $map_plotting = [];
         $map_izin_full = [];
-        $map_ta = [];
+        $raw_unattended_apel_excel = [];
 
-        if (!empty($ids_pegawai)) {
+        if (!empty($ids_pegawai) && $db->tableExists('apel_peserta') && $db->tableExists('apel')) {
             $unattended_apel = $db->table('apel_peserta')
-                ->select('apel_peserta.id_pegawai, COUNT(*) as ta_count')
+                ->select('apel_peserta.id_pegawai, apel.tanggal, pegawai.nip')
                 ->join('apel', 'apel.id_apel = apel_peserta.id_apel')
+                ->join('pegawai', 'pegawai.id_pegawai = apel_peserta.id_pegawai')
                 ->whereIn('apel_peserta.id_pegawai', $ids_pegawai)
                 ->where('apel.tanggal >=', $tgl_awal_bulan)
                 ->where('apel.tanggal <=', $endDate)
                 ->groupStart()
-                ->where('apel_peserta.jam_absen', null)
-                ->orWhere('apel_peserta.jam_absen', '')
+                    ->where('apel_peserta.jam_absen', null)
+                    ->orWhere('apel_peserta.jam_absen', '')
                 ->groupEnd()
-                ->groupBy('apel_peserta.id_pegawai')
                 ->get()->getResultArray();
             foreach ($unattended_apel as $ua) {
-                $map_ta[$ua['id_pegawai']] = $ua['ta_count'];
+                $raw_unattended_apel_excel[$ua['id_pegawai']][$ua['tanggal']] = $ua['nip'];
             }
+        }
+
+        if (!empty($ids_pegawai)) {
 
             $builder_plot = $db->table('plotting_shift')->whereIn('id_pegawai', $ids_pegawai);
             if ($db->fieldExists('tanggal_mulai', 'plotting_shift')) {
@@ -1977,6 +1998,22 @@ class Rekap extends BaseController
                             $all_presensi[$nip][$tgl]['menit_keterlambatan'] = 0;
                         }
                     }
+                }
+            }
+        }
+
+        $map_ta = [];
+        foreach ($raw_unattended_apel_excel as $id_pgw => $tgl_map) {
+            foreach ($tgl_map as $tgl_apel => $nip_pgw) {
+                $hadir_kantor = isset($all_presensi[$nip_pgw][$tgl_apel]) &&
+                    !empty($all_presensi[$nip_pgw][$tgl_apel]['jam_masuk_aktual']) &&
+                    $all_presensi[$nip_pgw][$tgl_apel]['jam_masuk_aktual'] != '00:00:00' &&
+                    strtolower($all_presensi[$nip_pgw][$tgl_apel]['kategori'] ?? '') != 'alpa';
+                $ada_izin = isset($map_izin_full[$nip_pgw][$tgl_apel]);
+
+                if (!$hadir_kantor && !$ada_izin) {
+                    if (!isset($map_ta[$id_pgw])) $map_ta[$id_pgw] = 0;
+                    $map_ta[$id_pgw]++;
                 }
             }
         }
