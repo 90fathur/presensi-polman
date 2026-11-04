@@ -30,6 +30,8 @@ $routes->get('logout', 'Auth::logout');
 $routes->get('logoutpwa', 'Auth::logoutpwa');
 $routes->get('testnotif', 'TestNotif::index');
 $routes->view('privacy-policy', 'privacy-policy');
+$routes->view('privacy', 'privacy-policy');
+$routes->view('kebijakan-privasi', 'privacy-policy');
 
 
 $routes->get('cron/remind-masuk', 'Reminder::ingatkanMasuk');

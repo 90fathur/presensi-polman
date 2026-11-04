@@ -71,7 +71,15 @@ class Filters extends BaseFilters
                     'download/*',       // Folder/Route download APK
                     'cron/*',           // Eksekusi otomatis Cron Job
                     'apelweb',          // Web Check-in Apel
-                    'apelweb/*'
+                    'apelweb/*',
+                    'privacy-policy',
+                    'privacy-policy/*',
+                    'privacy',
+                    'privacy/*',
+                    'kebijakan-privasi',
+                    'kebijakan-privasi/*',
+                    'live',
+                    'live/*'
                 ]
             ],
         ],
