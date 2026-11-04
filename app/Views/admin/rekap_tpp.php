@@ -253,7 +253,12 @@
                                 <span class="fw-bold d-block text-dark"><?= $p['nama'] ?></span>
                                 <span class="text-muted" style="font-size: 0.6rem;"><?= $p['nip'] ?></span>
                             </td>
-                            <td class="small"><?= $p['pangkat'] ?><br><span class="text-muted" style="font-size: 0.6rem;"><?= $p['golongan'] ?></span></td>
+                            <td class="small">
+                                <?= esc($p['pangkat']) ?>
+                                <?php if (!empty($p['golongan']) && $p['golongan'] !== '-'): ?>
+                                    <br><span class="text-muted fw-bold" style="font-size: 0.65rem;"><?= esc($p['golongan']) ?></span>
+                                <?php endif; ?>
+                            </td>
                             <td class="text-start small"><?= $p['jab'] ?></td>
                             <td class="fw-bold text-success"><?= $p['hari_kerja'] ?></td>
 

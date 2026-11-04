@@ -94,7 +94,8 @@ class Pegawai extends BaseController
             'title'           => 'Manajemen Pegawai',
             'level'           => $level,
             'opd_wfa_allowed' => $opd_wfa_allowed,
-            'opd_list'        => $list_tampil
+            'opd_list'        => $list_tampil,
+            'daftar_pangkat'  => \App\Helpers\AsnHelper::get_daftar_pangkat()
         ];
 
         return view('pegawai/index', $data);
@@ -436,13 +437,18 @@ class Pegawai extends BaseController
                 ->with('error', 'Gagal menyimpan! NIP ' . $nip_input . ' sudah terdaftar di sistem.');
         }
 
+        $pangkat_raw = $this->request->getPost('pangkat');
+        $golongan_raw = $this->request->getPost('golongan');
+        $parsed_pg = \App\Helpers\AsnHelper::parse_pangkat_golongan($pangkat_raw, $golongan_raw);
+
         $data = [
             'id_opd'        => $this->request->getPost('id_opd'),
             'nip'           => $nip_input,
             'nama_lengkap'  => $this->request->getPost('nama_lengkap'),
             'jabatan'       => $this->request->getPost('jabatan'),
             'level_jabatan' => $this->request->getPost('level_jabatan'),
-            'pangkat'       => $this->request->getPost('pangkat'),
+            'pangkat'       => $parsed_pg['pangkat'],
+            'golongan'      => $parsed_pg['golongan'],
             'eselon'        => $this->request->getPost('eselon'),
             'status_asn'    => $this->request->getPost('status_asn'),
             'is_bercadar'   => $this->request->getPost('is_bercadar') ?? 0,
@@ -468,13 +474,18 @@ class Pegawai extends BaseController
         $db = \Config\Database::connect();
         $id = $this->request->getPost('id_pegawai');
 
+        $pangkat_raw = $this->request->getPost('pangkat');
+        $golongan_raw = $this->request->getPost('golongan');
+        $parsed_pg = \App\Helpers\AsnHelper::parse_pangkat_golongan($pangkat_raw, $golongan_raw);
+
         $data = [
             'id_opd'        => $this->request->getPost('id_opd'),
             'nip'           => $this->request->getPost('nip'),
             'nama_lengkap'  => $this->request->getPost('nama_lengkap'),
             'jabatan'       => $this->request->getPost('jabatan'),
             'level_jabatan' => $this->request->getPost('level_jabatan'),
-            'pangkat'       => $this->request->getPost('pangkat'),
+            'pangkat'       => $parsed_pg['pangkat'],
+            'golongan'      => $parsed_pg['golongan'],
             'eselon'        => $this->request->getPost('eselon'),
             'status_asn'    => $this->request->getPost('status_asn'),
             'is_bercadar'   => $this->request->getPost('is_bercadar') ?? 0,
@@ -515,6 +526,12 @@ class Pegawai extends BaseController
     {
         $db = \Config\Database::connect();
         $data = $db->table('pegawai')->where('id_pegawai', $id)->get()->getRowArray();
+        if ($data) {
+            $parsed = \App\Helpers\AsnHelper::parse_pangkat_golongan($data['pangkat'] ?? '', $data['golongan'] ?? '');
+            $data['pangkat_clean'] = $parsed['pangkat'];
+            $data['golongan_clean'] = $parsed['golongan'];
+            $data['pangkat_pair'] = ($parsed['pangkat'] !== '-' && $parsed['golongan'] !== '-') ? ($parsed['pangkat'] . '|' . $parsed['golongan']) : '';
+        }
         return $this->response->setJSON($data);
     }
 

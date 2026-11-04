@@ -296,8 +296,22 @@
                                 </select>
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label small fw-bold text-secondary">Pangkat / Gol.</label>
-                                <input type="text" name="pangkat" class="form-control border-0 shadow-sm py-2 rounded-3" placeholder="Cth: Pembina / IV.a" value="<?= old('pangkat') ?>">
+                                <label class="form-label small fw-bold text-secondary">Pangkat / Golongan</label>
+                                <select id="tambah_pangkat_select" class="form-select border-0 shadow-sm py-2 rounded-3">
+                                    <option value="">-- Pilih Pangkat & Golongan --</option>
+                                    <?php 
+                                    $pangkat_options = $daftar_pangkat ?? \App\Helpers\AsnHelper::get_daftar_pangkat();
+                                    foreach ($pangkat_options as $group => $items): 
+                                    ?>
+                                        <optgroup label="<?= $group ?>">
+                                            <?php foreach ($items as $val => $label): ?>
+                                                <option value="<?= $val ?>"><?= $label ?></option>
+                                            <?php endforeach; ?>
+                                        </optgroup>
+                                    <?php endforeach; ?>
+                                </select>
+                                <input type="hidden" name="pangkat" id="tambah_pangkat" value="<?= old('pangkat') ?>">
+                                <input type="hidden" name="golongan" id="tambah_golongan" value="<?= old('golongan') ?>">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label small fw-bold text-secondary">Eselon</label>
@@ -409,8 +423,22 @@
                                 </select>
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label small fw-bold text-secondary">Pangkat / Gol.</label>
-                                <input type="text" name="pangkat" id="edit_pangkat" class="form-control border-0 shadow-sm py-2 rounded-3" placeholder="Cth: Pembina / IV.a">
+                                <label class="form-label small fw-bold text-secondary">Pangkat / Golongan</label>
+                                <select id="edit_pangkat_select" class="form-select border-0 shadow-sm py-2 rounded-3">
+                                    <option value="">-- Pilih Pangkat & Golongan --</option>
+                                    <?php 
+                                    $pangkat_options = $daftar_pangkat ?? \App\Helpers\AsnHelper::get_daftar_pangkat();
+                                    foreach ($pangkat_options as $group => $items): 
+                                    ?>
+                                        <optgroup label="<?= $group ?>">
+                                            <?php foreach ($items as $val => $label): ?>
+                                                <option value="<?= $val ?>"><?= $label ?></option>
+                                            <?php endforeach; ?>
+                                        </optgroup>
+                                    <?php endforeach; ?>
+                                </select>
+                                <input type="hidden" name="pangkat" id="edit_pangkat">
+                                <input type="hidden" name="golongan" id="edit_golongan">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label small fw-bold text-secondary">Eselon</label>
@@ -541,6 +569,30 @@
 
     var table;
     $(document).ready(function() {
+        $('#tambah_pangkat_select').on('change', function() {
+            const val = $(this).val();
+            if (val) {
+                const parts = val.split('|');
+                $('#tambah_pangkat').val(parts[0]);
+                $('#tambah_golongan').val(parts[1] || '-');
+            } else {
+                $('#tambah_pangkat').val('');
+                $('#tambah_golongan').val('');
+            }
+        });
+
+        $('#edit_pangkat_select').on('change', function() {
+            const val = $(this).val();
+            if (val) {
+                const parts = val.split('|');
+                $('#edit_pangkat').val(parts[0]);
+                $('#edit_golongan').val(parts[1] || '-');
+            } else {
+                $('#edit_pangkat').val('');
+                $('#edit_golongan').val('');
+            }
+        });
+
         table = $('#tabelPegawai').DataTable({
             "processing": true,
             "serverSide": true,
@@ -887,7 +939,33 @@
                 $('#edit_jabatan').val(data.jabatan);
                 $('#edit_level_jabatan').val(data.level_jabatan);
                 $('#edit_status_asn').val(data.status_asn);
-                $('#edit_pangkat').val(data.pangkat);
+                $('#edit_pangkat').val(data.pangkat_clean || data.pangkat);
+                $('#edit_golongan').val(data.golongan_clean || data.golongan);
+
+                let matched = false;
+                if (data.pangkat_pair && $('#edit_pangkat_select option[value="' + data.pangkat_pair + '"]').length > 0) {
+                    $('#edit_pangkat_select').val(data.pangkat_pair);
+                    matched = true;
+                } else if (data.pangkat_clean || data.golongan_clean) {
+                    $('#edit_pangkat_select option').each(function() {
+                        const optVal = $(this).val();
+                        if (!optVal) return;
+                        const parts = optVal.split('|');
+                        if (data.pangkat_clean && parts[0].toLowerCase() === data.pangkat_clean.toLowerCase()) {
+                            $('#edit_pangkat_select').val(optVal);
+                            matched = true;
+                            return false;
+                        }
+                        if (data.golongan_clean && parts[1] && parts[1].toLowerCase() === data.golongan_clean.toLowerCase()) {
+                            $('#edit_pangkat_select').val(optVal);
+                            matched = true;
+                            return false;
+                        }
+                    });
+                }
+                if (!matched) {
+                    $('#edit_pangkat_select').val('');
+                }
                 $('#edit_eselon').val(data.eselon);
                 $('#edit_is_bercadar').val(data.is_bercadar ?? 0);
                 new bootstrap.Modal(document.getElementById('modalEditPegawai')).show();

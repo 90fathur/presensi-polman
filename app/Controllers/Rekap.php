@@ -1482,12 +1482,14 @@ class Rekap extends BaseController
             foreach ($pegawai as $pgw) {
                 $log_map = $all_presensi[$pgw['nip']] ?? [];
 
+                $parsed_pg = \App\Helpers\AsnHelper::parse_pangkat_golongan($pgw['pangkat'] ?? '', $pgw['golongan'] ?? '');
+
                 $res = [
                     'nama' => $pgw['nama_lengkap'],
                     'nip' => $pgw['nip'],
                     'jab' => $pgw['jabatan'],
-                    'pangkat' => $pgw['pangkat'] ?? '-',
-                    'golongan' => $pgw['golongan'] ?? '-',
+                    'pangkat' => $parsed_pg['pangkat'],
+                    'golongan' => $parsed_pg['golongan'],
                     'hari_kerja' => 0,
                     'p1' => 0,
                     'p2' => 0,
@@ -2062,12 +2064,14 @@ class Rekap extends BaseController
         foreach ($pegawai as $pgw) {
             $log_map = $all_presensi[$pgw['nip']] ?? [];
 
+            $parsed_pg = \App\Helpers\AsnHelper::parse_pangkat_golongan($pgw['pangkat'] ?? '', $pgw['golongan'] ?? '');
+
             $res = [
                 'nama' => $pgw['nama_lengkap'],
                 'nip' => $pgw['nip'],
                 'jab' => $pgw['jabatan'],
-                'pangkat' => $pgw['pangkat'] ?? '-',
-                'golongan' => $pgw['golongan'] ?? '-',
+                'pangkat' => $parsed_pg['pangkat'],
+                'golongan' => $parsed_pg['golongan'],
                 'hari_kerja' => 0,
                 'p1' => 0,
                 'p2' => 0,
