@@ -1611,18 +1611,23 @@ class Rekap extends BaseController
                                 $res['tdk']++;
                             }
 
+                            // Keterlambatan P1 s.d P4 Sesuai Perbup Polewali Mandar Pasal 2 Ayat (2):
+                            // a. 07.31 - 08.00 (1 - 30 mnt)  : P1 (0.5%)
+                            // b. 08.01 - 08.30 (31 - 60 mnt) : P2 (1.0%)
+                            // c. 08.31 - 09.00 (61 - 90 mnt) : P3 (1.25%)
+                            // d. setelah 09.00 (> 90 mnt)    : P4 (1.5%)
                             if (!$is_izin_pagi && !$is_apel_pagi) {
                                 if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
-                                    if (in_array($l['status_masuk'], ['Terlambat', 'Pembinaan', 'Teguran']) && !$is_cito) {
-                                        $config_jam = $map_jadwal_full[$id_jam_aktif][$nama_hari_loop] ?? null;
-                                        $batas_toleransi = $config_jam ? ($config_jam['batas_cukup_menit'] ?? 45) : 45;
-                                        $m = max(0, $l['menit_keterlambatan'] - $batas_toleransi);
+                                    if (!$is_cito) {
+                                        $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : ($map_jadwal_full[$id_jam_aktif][$nama_hari_loop]['jam_masuk'] ?? '07:30:00');
+                                        if ($l['jam_masuk_aktual'] > $jam_seharusnya) {
+                                            $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
+                                            $m = floor($selisih / 60);
 
-                                        if ($m > 0) {
-                                            if ($m <= 30) $res['p1']++;
-                                            elseif ($m <= 60) $res['p2']++;
-                                            elseif ($m <= 90) $res['p3']++;
-                                            else $res['p4']++;
+                                            if ($m >= 1 && $m <= 30) $res['p1']++;
+                                            elseif ($m >= 31 && $m <= 60) $res['p2']++;
+                                            elseif ($m >= 61 && $m <= 90) $res['p3']++;
+                                            elseif ($m > 90) $res['p4']++;
                                         }
                                     }
                                 } else {
@@ -2180,14 +2185,19 @@ class Rekap extends BaseController
                             $res['tdk']++;
                         }
 
+                        // Keterlambatan P1 s.d P4 Sesuai Perbup Polewali Mandar Pasal 2 Ayat (2):
+                        // a. 07.31 - 08.00 (1 - 30 mnt)  : P1 (0.5%)
+                        // b. 08.01 - 08.30 (31 - 60 mnt) : P2 (1.0%)
+                        // c. 08.31 - 09.00 (61 - 90 mnt) : P3 (1.25%)
+                        // d. setelah 09.00 (> 90 mnt)    : P4 (1.5%)
                         if (!$is_izin_pagi && !$is_apel_pagi) {
                             if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
-                                if (in_array($l['status_masuk'], ['Terlambat', 'Pembinaan', 'Teguran']) && !$is_cito) {
-                                    $config_jam = $map_jadwal_full[$id_jam_aktif][$nama_hari_loop] ?? null;
-                                    $batas_toleransi = $config_jam ? ($config_jam['batas_cukup_menit'] ?? 45) : 45;
-                                    $m = max(0, $l['menit_keterlambatan'] - $batas_toleransi);
+                                if (!$is_cito) {
+                                    $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : ($map_jadwal_full[$id_jam_aktif][$nama_hari_loop]['jam_masuk'] ?? '07:30:00');
+                                    if ($l['jam_masuk_aktual'] > $jam_seharusnya) {
+                                        $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
+                                        $m = floor($selisih / 60);
 
-                                    if ($m > 0) {
                                         if ($m >= 1 && $m <= 30) $res['p1']++;
                                         elseif ($m >= 31 && $m <= 60) $res['p2']++;
                                         elseif ($m >= 61 && $m <= 90) $res['p3']++;

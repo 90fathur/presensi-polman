@@ -473,16 +473,18 @@ class TppDinamis extends BaseController
                 if ($kat === 'alpa' || ($l['status_verifikasi'] ?? '') === 'Dianulir') {
                     $alpa++;
                 } else {
-                    // Keterlambatan P1 s.d P4 (dengan toleransi 45 menit & bebas penalti jika Hadir Apel atau Cukup Baik)
+                    // Keterlambatan P1 s.d P4 Sesuai Perbup Polewali Mandar Pasal 2 Ayat (2):
+                    // a. 07.31 - 08.00 (1 - 30 mnt)  : P1 (0.5%)
+                    // b. 08.01 - 08.30 (31 - 60 mnt) : P2 (1.0%)
+                    // c. 08.31 - 09.00 (61 - 90 mnt) : P3 (1.25%)
+                    // d. setelah 09.00 (> 90 mnt)    : P4 (1.5%)
                     if (!$is_apel_pagi) {
                         if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
-                            if (in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran'])) {
-                                $menit_telat = max(0, ((int)($l['menit_keterlambatan'] ?? 0)) - 45);
-                                if ($menit_telat == 0 && in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran'])) {
-                                    $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';
-                                    $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
-                                    $menit_telat = max(0, floor($selisih / 60) - 45);
-                                }
+                            $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';
+                            if ($l['jam_masuk_aktual'] > $jam_seharusnya) {
+                                $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
+                                $menit_telat = floor($selisih / 60);
+
                                 if ($menit_telat >= 1 && $menit_telat <= 30) $p1++;
                                 elseif ($menit_telat >= 31 && $menit_telat <= 60) $p2++;
                                 elseif ($menit_telat >= 61 && $menit_telat <= 90) $p3++;
@@ -1312,23 +1314,27 @@ class TppDinamis extends BaseController
                     $is_apel_pagi = (strpos($status_masuk, 'Apel') !== false || strpos($kategori, 'apel') !== false || (strpos($deskripsi, 'apel') !== false && strpos($deskripsi, 'tidak mengikuti apel') === false));
 
                     if (!$is_full_day) {
-                        // Keterlambatan P1 s.d P4 (dengan toleransi 45 menit & bebas penalti jika Hadir Apel atau Cukup Baik)
+                        // Keterlambatan P1 s.d P4 Sesuai Perbup Polewali Mandar Pasal 2 Ayat (2):
+                        // a. 1 - 30 mnt  : P1 (0.5%)
+                        // b. 31 - 60 mnt : P2 (1.0%)
+                        // c. 61 - 90 mnt : P3 (1.25%)
+                        // d. > 90 mnt    : P4 (1.5%)
                         if (!$is_apel_pagi) {
                             if (!empty($l['jam_masuk_aktual']) && $l['jam_masuk_aktual'] > '04:00:00') {
-                                if (in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran']) && !$is_cito) {
-                                    $menit_telat = max(0, ((int)($l['menit_keterlambatan'] ?? 0)) - 45);
-                                    if ($menit_telat == 0 && in_array($status_masuk, ['Terlambat', 'Pembinaan', 'Teguran'])) {
-                                        $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';
+                                if (!$is_cito) {
+                                    $jam_seharusnya = !empty($l['jam_masuk_seharusnya']) ? $l['jam_masuk_seharusnya'] : '07:30:00';
+                                    if ($l['jam_masuk_aktual'] > $jam_seharusnya) {
                                         $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
-                                        $menit_telat = max(0, floor($selisih / 60) - 45);
+                                        $menit_telat = floor($selisih / 60);
+
+                                        if ($menit_telat >= 1 && $menit_telat <= 30) $res['p1']++;
+                                        elseif ($menit_telat >= 31 && $menit_telat <= 60) $res['p2']++;
+                                        elseif ($menit_telat >= 61 && $menit_telat <= 90) $res['p3']++;
+                                        elseif ($menit_telat > 90) $res['p4']++;
                                     }
-                                    if ($menit_telat >= 1 && $menit_telat <= 30) $res['p1']++;
-                                    elseif ($menit_telat >= 31 && $menit_telat <= 60) $res['p2']++;
-                                    elseif ($menit_telat >= 61 && $menit_telat <= 90) $res['p3']++;
-                                    elseif ($menit_telat > 90) $res['p4']++;
                                 }
                             } else {
-                                if ($tgl_loop < $hari_ini_global) $res['p4']++;
+                                if ($tgl_loop < $hari_ini_global && !$is_cito) $res['p4']++;
                             }
                         }
 
