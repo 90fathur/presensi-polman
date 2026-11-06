@@ -877,7 +877,7 @@ if ($is_superadmin_view):
                         </div>
                         <div class="col-6">
                             <label class="form-label fw-bold mb-1" style="font-size:13px;">Jam Pulang Baru</label>
-                            <input type="time" id="swal-massal-jam-pulang" class="form-control" value="16:00">
+                            <input type="time" id="swal-massal-jam-pulang" class="form-control" value="" placeholder="--:--">
                         </div>
                     </div>
                     <small class="text-muted d-block mt-2" style="font-size:11px;">* Kosongkan jam jika tidak ingin merubah data jam.</small>
@@ -972,7 +972,7 @@ if ($is_superadmin_view):
             let oldTime = match ? match[1] : '';
             let isAlpa = currentColor === 'bg-alpa' || oldTitle.toLowerCase().includes('alpa') || oldTitle.toLowerCase().includes('kosong');
             let defaultJamMasuk = oldTime ? oldTime : '07:30';
-            let defaultJamPulang = '16:00';
+            let defaultJamPulang = '';
 
             Swal.fire({
                 title: 'Ubah Status & Jam',
@@ -998,10 +998,10 @@ if ($is_superadmin_view):
                             </div>
                             <div class="col-6">
                                 <label class="form-label fw-bold mb-1" style="font-size:13px;">Jam Pulang</label>
-                                <input type="time" id="swal-input-jam-pulang" class="form-control" value="${defaultJamPulang}">
+                                <input type="time" id="swal-input-jam-pulang" class="form-control" value="" placeholder="--:--">
                             </div>
                         </div>
-                        <small class="text-muted d-block mt-2" style="font-size:11px;">* Jam masuk dan pulang dapat disesuaikan untuk data Alpa maupun Terlambat.</small>
+                        <small class="text-muted d-block mt-2" style="font-size:11px;">* Jika hanya mengisi Jam Masuk (Pagi), Jam Pulang dan Siang <b>TIDAK</b> akan otomatis terisi.</small>
                         <small class="text-muted d-block mt-2" style="font-size:11px;">* Kosongkan jika tidak ingin merubah jam terkait.</small>
                     </div>
                 `,

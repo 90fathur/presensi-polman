@@ -3348,7 +3348,8 @@ class Rekap extends BaseController
             // BELUM ADA DATA PRESENSI (ALPA / TANPA REKAM JEJAK) -> BUAT RECORD BARU
             $pegawai = $db->table('pegawai')->where('nip', $nip)->get()->getRow();
             $jam_masuk_final = !empty($jam_baru) ? ($jam_baru . ':00') : '07:30:00';
-            $jam_pulang_final = !empty($jam_pulang) ? ($jam_pulang . ':00') : '16:00:00';
+            // Hanya isi jam pulang jika pengguna mengisinya, JANGAN otomatis isi sore atau siang!
+            $jam_pulang_final = !empty($jam_pulang) ? ($jam_pulang . ':00') : null;
 
             $data_insert = [
                 'id_pegawai'            => $pegawai ? $pegawai->id_pegawai : 0,
@@ -3359,9 +3360,9 @@ class Rekap extends BaseController
                 'jam_masuk_aktual'      => ($new_color === 'bg-alpa') ? null : $jam_masuk_final,
                 'jam_pulang_seharusnya' => '16:00:00',
                 'jam_pulang_aktual'     => ($new_color === 'bg-alpa') ? null : $jam_pulang_final,
-                'jam_siang'             => ($new_color === 'bg-alpa') ? null : '12:05:00',
+                'jam_siang'             => null, // JANGAN otomatis isi jam siang!
                 'status_masuk'          => $status_baru,
-                'status_pulang'         => ($new_color === 'bg-alpa') ? 'Alpa' : 'Selesai',
+                'status_pulang'         => ($new_color === 'bg-alpa') ? 'Alpa' : (!empty($jam_pulang_final) ? 'Selesai' : 'Belum Pulang'),
                 'menit_keterlambatan'   => $menit_keterlambatan,
                 'kategori'              => ($new_color === 'bg-alpa') ? 'Alpa' : 'Hadir',
                 'keterangan'            => 'Koreksi Kehadiran Matriks oleh Superadmin (' . ($session->get('nama') ?? $session->get('username')) . ')',
@@ -3409,19 +3410,12 @@ class Rekap extends BaseController
                 }
             }
 
+            // HANYA ubah jam pulang jika superadmin secara eksplisit mengisinya!
             if (!empty($jam_pulang)) {
                 $update_data['jam_pulang_aktual'] = $jam_pulang . ':00';
                 $update_data['status_pulang'] = 'Selesai';
-            } else {
-                if (empty($presensi->jam_pulang_aktual) || $presensi->jam_pulang_aktual == '00:00:00' || $presensi->jam_pulang_aktual <= '04:00:00') {
-                    $update_data['jam_pulang_aktual'] = isset($presensi->jam_pulang_seharusnya) ? $presensi->jam_pulang_seharusnya : '16:00:00';
-                    $update_data['status_pulang'] = 'Selesai';
-                }
             }
-
-            if (empty($presensi->jam_siang) || $presensi->jam_siang == '00:00:00') {
-                $update_data['jam_siang'] = '12:05:00';
-            }
+            // JANGAN mengisi otomatis jam_siang atau jam_pulang jika tidak diisi!
         }
 
         try {
@@ -3512,19 +3506,12 @@ class Rekap extends BaseController
                         }
                     }
 
+                    // Hanya update jam pulang jika diisi
                     if (!empty($jam_pulang)) {
                         $update_data['jam_pulang_aktual'] = $jam_pulang . ':00';
                         $update_data['status_pulang'] = 'Selesai';
-                    } else {
-                        if (empty($presensi->jam_pulang_aktual) || $presensi->jam_pulang_aktual == '00:00:00' || $presensi->jam_pulang_aktual <= '04:00:00') {
-                            $update_data['jam_pulang_aktual'] = isset($presensi->jam_pulang_seharusnya) ? $presensi->jam_pulang_seharusnya : '16:00:00';
-                            $update_data['status_pulang'] = 'Selesai';
-                        }
                     }
-
-                    if (empty($presensi->jam_siang) || $presensi->jam_siang == '00:00:00') {
-                        $update_data['jam_siang'] = '12:05:00';
-                    }
+                    // JANGAN otomatis isi jam_siang!
                 }
 
                 $db->table('presensi')->where('id_presensi', $presensi->id_presensi)->update($update_data);
@@ -3533,7 +3520,7 @@ class Rekap extends BaseController
                 // BELUM ADA DATA (ALPA) -> INSERT RECORD BARU
                 $pegawai = $db->table('pegawai')->where('nip', $nip)->get()->getRow();
                 $jam_masuk_final = !empty($jam_baru) ? ($jam_baru . ':00') : '07:30:00';
-                $jam_pulang_final = !empty($jam_pulang) ? ($jam_pulang . ':00') : '16:00:00';
+                $jam_pulang_final = !empty($jam_pulang) ? ($jam_pulang . ':00') : null;
 
                 $data_insert = [
                     'id_pegawai'            => $pegawai ? $pegawai->id_pegawai : 0,
@@ -3544,9 +3531,9 @@ class Rekap extends BaseController
                     'jam_masuk_aktual'      => ($new_color === 'bg-alpa') ? null : $jam_masuk_final,
                     'jam_pulang_seharusnya' => '16:00:00',
                     'jam_pulang_aktual'     => ($new_color === 'bg-alpa') ? null : $jam_pulang_final,
-                    'jam_siang'             => ($new_color === 'bg-alpa') ? null : '12:05:00',
+                    'jam_siang'             => null, // JANGAN otomatis isi siang!
                     'status_masuk'          => $status_baru,
-                    'status_pulang'         => ($new_color === 'bg-alpa') ? 'Alpa' : 'Selesai',
+                    'status_pulang'         => ($new_color === 'bg-alpa') ? 'Alpa' : (!empty($jam_pulang_final) ? 'Selesai' : 'Belum Pulang'),
                     'menit_keterlambatan'   => $menit_keterlambatan,
                     'kategori'              => ($new_color === 'bg-alpa') ? 'Alpa' : 'Hadir',
                     'keterangan'            => 'Koreksi Massal Matriks oleh Superadmin (' . ($session->get('nama') ?? $session->get('username')) . ')',
