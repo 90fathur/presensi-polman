@@ -3353,7 +3353,6 @@ class Rekap extends BaseController
 
             $data_insert = [
                 'id_pegawai'            => $pegawai ? $pegawai->id_pegawai : 0,
-                'id_opd'                => $pegawai ? $pegawai->id_opd : null,
                 'nip'                   => $nip,
                 'tanggal'               => $tanggal,
                 'jam_masuk_seharusnya'  => '07:30:00',
@@ -3524,7 +3523,6 @@ class Rekap extends BaseController
 
                 $data_insert = [
                     'id_pegawai'            => $pegawai ? $pegawai->id_pegawai : 0,
-                    'id_opd'                => $pegawai ? $pegawai->id_opd : null,
                     'nip'                   => $nip,
                     'tanggal'               => $tanggal,
                     'jam_masuk_seharusnya'  => '07:30:00',
