@@ -3299,8 +3299,12 @@ class Rekap extends BaseController
     public function ajax_koreksi_terlambat()
     {
         $session = session();
-        if (trim(strtolower($session->get('username'))) !== 'superadmin') {
-            return $this->response->setJSON(['status' => 'error', 'message' => 'Anda tidak memiliki akses (Khusus Username Superadmin).']);
+        $username = strtolower(trim((string)$session->get('username')));
+        $level = strtolower(trim((string)$session->get('level')));
+        $is_superadmin = (strpos($username, 'superadmin') !== false || $level === 'superadmin');
+
+        if (!$is_superadmin) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Anda tidak memiliki akses (Khusus Akun Superadmin).']);
         }
 
         $nip = $this->request->getPost('nip');
@@ -3316,57 +3320,107 @@ class Rekap extends BaseController
         $db = \Config\Database::connect();
 
         $presensi = $db->table('presensi')->where('nip', $nip)->where('tanggal', $tanggal)->get()->getRow();
-        if (!$presensi) {
-            return $this->response->setJSON(['status' => 'error', 'message' => 'Data presensi tidak ditemukan di database.']);
-        }
 
         // Tentukan warna baru berdasarkan status
         $new_color = 'bg-st-baik'; // default
         $lbl_m = strtolower($status_baru);
         if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false) $new_color = 'bg-st-istimewa';
-        elseif (strpos($lbl_m, 'baik') !== false) $new_color = 'bg-st-baik';
+        elseif ($lbl_m == 'baik') $new_color = 'bg-st-baik';
         elseif (strpos($lbl_m, 'cukup') !== false) $new_color = 'bg-st-cukup';
         elseif (strpos($lbl_m, 'terlambat') !== false) $new_color = 'bg-st-telat';
         elseif (strpos($lbl_m, 'pembinaan') !== false) $new_color = 'bg-st-bina';
         elseif (strpos($lbl_m, 'teguran') !== false) $new_color = 'bg-st-teguran';
+        elseif (strpos($lbl_m, 'alpa') !== false) $new_color = 'bg-alpa';
 
+        // Rekalkulasi menit keterlambatan
+        $menit_keterlambatan = 0;
+        if (in_array($new_color, ['bg-st-telat', 'bg-st-bina', 'bg-st-teguran'])) {
+            if (!empty($jam_baru)) {
+                $jam_seharusnya = ($presensi && !empty($presensi->jam_masuk_seharusnya)) ? $presensi->jam_masuk_seharusnya : '07:30:00';
+                $diff = strtotime($jam_baru . ':00') - strtotime($jam_seharusnya);
+                $menit_keterlambatan = max(0, floor($diff / 60));
+            } else {
+                $menit_keterlambatan = ($presensi && $presensi->menit_keterlambatan > 0) ? $presensi->menit_keterlambatan : 60;
+            }
+        }
+
+        if (!$presensi) {
+            // BELUM ADA DATA PRESENSI (ALPA / TANPA REKAM JEJAK) -> BUAT RECORD BARU
+            $pegawai = $db->table('pegawai')->where('nip', $nip)->get()->getRow();
+            $jam_masuk_final = !empty($jam_baru) ? ($jam_baru . ':00') : '07:30:00';
+            $jam_pulang_final = !empty($jam_pulang) ? ($jam_pulang . ':00') : '16:00:00';
+
+            $data_insert = [
+                'id_pegawai'            => $pegawai ? $pegawai->id_pegawai : 0,
+                'id_opd'                => $pegawai ? $pegawai->id_opd : null,
+                'nip'                   => $nip,
+                'tanggal'               => $tanggal,
+                'jam_masuk_seharusnya'  => '07:30:00',
+                'jam_masuk_aktual'      => ($new_color === 'bg-alpa') ? null : $jam_masuk_final,
+                'jam_pulang_seharusnya' => '16:00:00',
+                'jam_pulang_aktual'     => ($new_color === 'bg-alpa') ? null : $jam_pulang_final,
+                'jam_siang'             => ($new_color === 'bg-alpa') ? null : '12:05:00',
+                'status_masuk'          => $status_baru,
+                'status_pulang'         => ($new_color === 'bg-alpa') ? 'Alpa' : 'Selesai',
+                'menit_keterlambatan'   => $menit_keterlambatan,
+                'kategori'              => ($new_color === 'bg-alpa') ? 'Alpa' : 'Hadir',
+                'keterangan'            => 'Koreksi Kehadiran Matriks oleh Superadmin (' . ($session->get('nama') ?? $session->get('username')) . ')',
+                'latitude'              => 'Manual Superadmin',
+                'longitude'             => 'Manual Superadmin',
+                'device_info'           => 'Web Matriks Superadmin',
+                'created_at'            => date('Y-m-d H:i:s'),
+                'updated_at'            => date('Y-m-d H:i:s')
+            ];
+
+            try {
+                $db->table('presensi')->insert($data_insert);
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'message' => 'Status dan jam kehadiran berhasil diperbarui.',
+                    'new_color' => $new_color
+                ]);
+            } catch (\Exception $e) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Gagal membuat data presensi: ' . $e->getMessage()
+                ]);
+            }
+        }
+
+        // SUDAH ADA DATA PRESENSI -> UPDATE DATA TERSEBUT
         $update_data = [
-            'status_masuk' => $status_baru,
-            'kategori' => 'Hadir' // Selalu pastikan kategori menjadi Hadir agar terhitung di TPP
+            'status_masuk'        => $status_baru,
+            'kategori'            => ($new_color === 'bg-alpa') ? 'Alpa' : 'Hadir',
+            'menit_keterlambatan' => $menit_keterlambatan,
+            'updated_at'          => date('Y-m-d H:i:s')
         ];
 
-        // --- PASTIKAN JAM MASUK TERISI (Untuk syarat TPP) ---
-        if (!empty($jam_baru)) {
-            $update_data['jam_masuk_aktual'] = $jam_baru . ':00';
+        if ($new_color === 'bg-alpa') {
+            $update_data['jam_masuk_aktual'] = null;
+            $update_data['jam_pulang_aktual'] = null;
+            $update_data['jam_siang'] = null;
+            $update_data['status_pulang'] = 'Alpa';
         } else {
-            if (empty($presensi->jam_masuk_aktual) || $presensi->jam_masuk_aktual == '00:00:00') {
-                $update_data['jam_masuk_aktual'] = isset($presensi->jam_masuk_seharusnya) ? $presensi->jam_masuk_seharusnya : '07:30:00';
-            }
-        }
-
-        // --- PASTIKAN JAM PULANG TERISI (Untuk syarat TPP) ---
-        if (!empty($jam_pulang)) {
-            $update_data['jam_pulang_aktual'] = $jam_pulang . ':00';
-            $update_data['status_pulang'] = 'Selesai';
-        } else {
-            if (empty($presensi->jam_pulang_aktual) || $presensi->jam_pulang_aktual == '00:00:00' || $presensi->jam_pulang_aktual <= '04:00:00') {
-                $update_data['jam_pulang_aktual'] = isset($presensi->jam_pulang_seharusnya) ? $presensi->jam_pulang_seharusnya : '16:00:00';
-                $update_data['status_pulang'] = 'Selesai';
-            }
-        }
-
-        // --- REKALKULASI MENIT KETERLAMBATAN UNTUK REKAP TPP ---
-        if (in_array($new_color, ['bg-st-baik', 'bg-st-istimewa', 'bg-st-cukup'])) {
-            // Jika tepat waktu / cepat, hapus denda keterlambatan
-            $update_data['menit_keterlambatan'] = 0;
-        } else {
-            // Jika terlambat
             if (!empty($jam_baru)) {
-                $jam_seharusnya = isset($presensi->jam_masuk_seharusnya) ? $presensi->jam_masuk_seharusnya : '07:30:00';
-                $diff = strtotime($jam_baru . ':00') - strtotime($jam_seharusnya);
-                $update_data['menit_keterlambatan'] = max(0, floor($diff / 60));
-            } elseif ($presensi->menit_keterlambatan == 0) {
-                $update_data['menit_keterlambatan'] = 60; // denda default 1 jam jika jam_baru kosong
+                $update_data['jam_masuk_aktual'] = $jam_baru . ':00';
+            } else {
+                if (empty($presensi->jam_masuk_aktual) || $presensi->jam_masuk_aktual == '00:00:00') {
+                    $update_data['jam_masuk_aktual'] = isset($presensi->jam_masuk_seharusnya) ? $presensi->jam_masuk_seharusnya : '07:30:00';
+                }
+            }
+
+            if (!empty($jam_pulang)) {
+                $update_data['jam_pulang_aktual'] = $jam_pulang . ':00';
+                $update_data['status_pulang'] = 'Selesai';
+            } else {
+                if (empty($presensi->jam_pulang_aktual) || $presensi->jam_pulang_aktual == '00:00:00' || $presensi->jam_pulang_aktual <= '04:00:00') {
+                    $update_data['jam_pulang_aktual'] = isset($presensi->jam_pulang_seharusnya) ? $presensi->jam_pulang_seharusnya : '16:00:00';
+                    $update_data['status_pulang'] = 'Selesai';
+                }
+            }
+
+            if (empty($presensi->jam_siang) || $presensi->jam_siang == '00:00:00') {
+                $update_data['jam_siang'] = '12:05:00';
             }
         }
 
@@ -3389,8 +3443,12 @@ class Rekap extends BaseController
     public function ajax_koreksi_terlambat_massal()
     {
         $session = session();
-        if (trim(strtolower($session->get('username'))) !== 'superadmin') {
-            return $this->response->setJSON(['status' => 'error', 'message' => 'Anda tidak memiliki akses (Khusus Username Superadmin).']);
+        $username = strtolower(trim((string)$session->get('username')));
+        $level = strtolower(trim((string)$session->get('level')));
+        $is_superadmin = (strpos($username, 'superadmin') !== false || $level === 'superadmin');
+
+        if (!$is_superadmin) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Anda tidak memiliki akses (Khusus Akun Superadmin).']);
         }
 
         $json_data = $this->request->getJSON();
@@ -3407,11 +3465,12 @@ class Rekap extends BaseController
         $new_color = 'bg-st-baik'; // default
         $lbl_m = strtolower($status_baru);
         if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false) $new_color = 'bg-st-istimewa';
-        elseif (strpos($lbl_m, 'baik') !== false) $new_color = 'bg-st-baik';
+        elseif ($lbl_m == 'baik') $new_color = 'bg-st-baik';
         elseif (strpos($lbl_m, 'cukup') !== false) $new_color = 'bg-st-cukup';
         elseif (strpos($lbl_m, 'terlambat') !== false) $new_color = 'bg-st-telat';
         elseif (strpos($lbl_m, 'pembinaan') !== false) $new_color = 'bg-st-bina';
         elseif (strpos($lbl_m, 'teguran') !== false) $new_color = 'bg-st-teguran';
+        elseif (strpos($lbl_m, 'alpa') !== false) $new_color = 'bg-alpa';
 
         $success_count = 0;
 
@@ -3420,44 +3479,85 @@ class Rekap extends BaseController
             $nip = $item->nip;
             $tanggal = $item->tanggal;
 
+            $menit_keterlambatan = 0;
+            if (in_array($new_color, ['bg-st-telat', 'bg-st-bina', 'bg-st-teguran'])) {
+                if (!empty($jam_baru)) {
+                    $diff = strtotime($jam_baru . ':00') - strtotime('07:30:00');
+                    $menit_keterlambatan = max(0, floor($diff / 60));
+                } else {
+                    $menit_keterlambatan = 60;
+                }
+            }
+
             $presensi = $db->table('presensi')->where('nip', $nip)->where('tanggal', $tanggal)->get()->getRow();
             if ($presensi) {
                 $update_data = [
-                    'status_masuk' => $status_baru,
-                    'kategori' => 'Hadir'
+                    'status_masuk'        => $status_baru,
+                    'kategori'            => ($new_color === 'bg-alpa') ? 'Alpa' : 'Hadir',
+                    'menit_keterlambatan' => $menit_keterlambatan,
+                    'updated_at'          => date('Y-m-d H:i:s')
                 ];
 
-                if (!empty($jam_baru)) {
-                    $update_data['jam_masuk_aktual'] = $jam_baru . ':00';
-                } else {
-                    if (empty($presensi->jam_masuk_aktual) || $presensi->jam_masuk_aktual == '00:00:00') {
-                        $update_data['jam_masuk_aktual'] = isset($presensi->jam_masuk_seharusnya) ? $presensi->jam_masuk_seharusnya : '07:30:00';
-                    }
-                }
-
-                if (!empty($jam_pulang)) {
-                    $update_data['jam_pulang_aktual'] = $jam_pulang . ':00';
-                    $update_data['status_pulang'] = 'Selesai';
-                } else {
-                    if (empty($presensi->jam_pulang_aktual) || $presensi->jam_pulang_aktual == '00:00:00' || $presensi->jam_pulang_aktual <= '04:00:00') {
-                        $update_data['jam_pulang_aktual'] = isset($presensi->jam_pulang_seharusnya) ? $presensi->jam_pulang_seharusnya : '16:00:00';
-                        $update_data['status_pulang'] = 'Selesai';
-                    }
-                }
-
-                if (in_array($new_color, ['bg-st-baik', 'bg-st-istimewa', 'bg-st-cukup'])) {
-                    $update_data['menit_keterlambatan'] = 0;
+                if ($new_color === 'bg-alpa') {
+                    $update_data['jam_masuk_aktual'] = null;
+                    $update_data['jam_pulang_aktual'] = null;
+                    $update_data['jam_siang'] = null;
+                    $update_data['status_pulang'] = 'Alpa';
                 } else {
                     if (!empty($jam_baru)) {
-                        $jam_seharusnya = isset($presensi->jam_masuk_seharusnya) ? $presensi->jam_masuk_seharusnya : '07:30:00';
-                        $diff = strtotime($jam_baru . ':00') - strtotime($jam_seharusnya);
-                        $update_data['menit_keterlambatan'] = max(0, floor($diff / 60));
-                    } elseif ($presensi->menit_keterlambatan == 0) {
-                        $update_data['menit_keterlambatan'] = 60;
+                        $update_data['jam_masuk_aktual'] = $jam_baru . ':00';
+                    } else {
+                        if (empty($presensi->jam_masuk_aktual) || $presensi->jam_masuk_aktual == '00:00:00') {
+                            $update_data['jam_masuk_aktual'] = isset($presensi->jam_masuk_seharusnya) ? $presensi->jam_masuk_seharusnya : '07:30:00';
+                        }
+                    }
+
+                    if (!empty($jam_pulang)) {
+                        $update_data['jam_pulang_aktual'] = $jam_pulang . ':00';
+                        $update_data['status_pulang'] = 'Selesai';
+                    } else {
+                        if (empty($presensi->jam_pulang_aktual) || $presensi->jam_pulang_aktual == '00:00:00' || $presensi->jam_pulang_aktual <= '04:00:00') {
+                            $update_data['jam_pulang_aktual'] = isset($presensi->jam_pulang_seharusnya) ? $presensi->jam_pulang_seharusnya : '16:00:00';
+                            $update_data['status_pulang'] = 'Selesai';
+                        }
+                    }
+
+                    if (empty($presensi->jam_siang) || $presensi->jam_siang == '00:00:00') {
+                        $update_data['jam_siang'] = '12:05:00';
                     }
                 }
 
                 $db->table('presensi')->where('id_presensi', $presensi->id_presensi)->update($update_data);
+                $success_count++;
+            } else {
+                // BELUM ADA DATA (ALPA) -> INSERT RECORD BARU
+                $pegawai = $db->table('pegawai')->where('nip', $nip)->get()->getRow();
+                $jam_masuk_final = !empty($jam_baru) ? ($jam_baru . ':00') : '07:30:00';
+                $jam_pulang_final = !empty($jam_pulang) ? ($jam_pulang . ':00') : '16:00:00';
+
+                $data_insert = [
+                    'id_pegawai'            => $pegawai ? $pegawai->id_pegawai : 0,
+                    'id_opd'                => $pegawai ? $pegawai->id_opd : null,
+                    'nip'                   => $nip,
+                    'tanggal'               => $tanggal,
+                    'jam_masuk_seharusnya'  => '07:30:00',
+                    'jam_masuk_aktual'      => ($new_color === 'bg-alpa') ? null : $jam_masuk_final,
+                    'jam_pulang_seharusnya' => '16:00:00',
+                    'jam_pulang_aktual'     => ($new_color === 'bg-alpa') ? null : $jam_pulang_final,
+                    'jam_siang'             => ($new_color === 'bg-alpa') ? null : '12:05:00',
+                    'status_masuk'          => $status_baru,
+                    'status_pulang'         => ($new_color === 'bg-alpa') ? 'Alpa' : 'Selesai',
+                    'menit_keterlambatan'   => $menit_keterlambatan,
+                    'kategori'              => ($new_color === 'bg-alpa') ? 'Alpa' : 'Hadir',
+                    'keterangan'            => 'Koreksi Massal Matriks oleh Superadmin (' . ($session->get('nama') ?? $session->get('username')) . ')',
+                    'latitude'              => 'Manual Superadmin',
+                    'longitude'             => 'Manual Superadmin',
+                    'device_info'           => 'Web Matriks Superadmin',
+                    'created_at'            => date('Y-m-d H:i:s'),
+                    'updated_at'            => date('Y-m-d H:i:s')
+                ];
+
+                $db->table('presensi')->insert($data_insert);
                 $success_count++;
             }
         }

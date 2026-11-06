@@ -237,7 +237,12 @@
                 <p class="m-0 small">PERIODE : <?= strtoupper(date('F Y', mktime(0, 0, 0, $bulan, 1, $tahun))) ?></p>
             </div>
 
-            <?php if (strpos(strtolower(session()->get('username')), 'superadmin') !== false): ?>
+            <?php 
+$uname = strtolower(trim((string)session()->get('username')));
+$lvl = strtolower(trim((string)session()->get('level')));
+$is_superadmin_view = (strpos($uname, 'superadmin') !== false || $lvl === 'superadmin');
+if ($is_superadmin_view): 
+?>
                 <div class="p-3 pb-0 text-end no-print">
                     <button type="button" class="btn btn-outline-danger btn-sm rounded-pill fw-bold" id="btnToggleMassal" onclick="toggleModeMassal()">
                         <i class="fas fa-check-double me-1"></i> Mode Pilihan Massal: OFF
@@ -344,17 +349,19 @@
                                         <?php
                                         $cell = $p['absensi'][$d];
                                         $cursor_style = '';
-                                        // Cek username Superadmin
-                                        $is_superadmin = (strpos(strtolower(session()->get('username')), 'superadmin') !== false);
-                                        $has_record = (!empty($cell['color']) && $cell['color'] !== 'bg-alpa' && $cell['color'] !== 'bg-libur');
+                                        // Cek akun Superadmin
+                                        $uname = strtolower(trim((string)session()->get('username')));
+                                        $lvl = strtolower(trim((string)session()->get('level')));
+                                        $is_superadmin = (strpos($uname, 'superadmin') !== false || $lvl === 'superadmin');
 
                                         $editable_class = '';
                                         $data_attrs = '';
-                                        if ($has_record && $is_superadmin) {
+                                        // Superadmin dapat mengedit SEMUA sel termasuk Alpa
+                                        if ($is_superadmin && !empty($cell['tanggal'])) {
                                             $safe_nama = htmlspecialchars(str_replace(["'", '"'], '', $p['nama']), ENT_QUOTES);
                                             $editable_class = 'editable-cell';
-                                            $data_attrs = 'data-nip="' . $cell['nip'] . '" data-tgl="' . $cell['tanggal'] . '" data-nama="' . $safe_nama . '" data-color="' . $cell['color'] . '"';
-                                            $cursor_style = 'cursor: pointer; box-shadow: inset 0 0 3px rgba(0,0,0,0.3); border: 1px solid #666 !important;';
+                                            $data_attrs = 'data-nip="' . $cell['nip'] . '" data-tgl="' . $cell['tanggal'] . '" data-nama="' . $safe_nama . '" data-color="' . ($cell['color'] ?? '') . '"';
+                                            $cursor_style = 'cursor: pointer; box-shadow: inset 0 0 3px rgba(0,0,0,0.3); border: 1px solid #555 !important;';
                                         }
                                         ?>
                                         <td class="cell-date <?= $cell['color'] ?> <?= $editable_class ?>"
@@ -860,16 +867,17 @@
                         <option value="Terlambat">Terlambat (Kuning)</option>
                         <option value="Pembinaan">Pembinaan (Kuning Terang)</option>
                         <option value="Teguran">Teguran (Coklat/Hitam)</option>
+                        <option value="Alpa">Alpa / Tanpa Keterangan (Merah)</option>
                     </select>
 
-                    <div class="row">
+                    <div class="row g-2">
                         <div class="col-6">
-                            <label class="form-label fw-bold" style="font-size:13px;">Jam Masuk Baru</label>
-                            <input type="time" id="swal-massal-jam" class="form-control">
+                            <label class="form-label fw-bold mb-1" style="font-size:13px;">Jam Masuk Baru</label>
+                            <input type="time" id="swal-massal-jam" class="form-control" value="07:30">
                         </div>
                         <div class="col-6">
-                            <label class="form-label fw-bold" style="font-size:13px;">Jam Pulang Baru</label>
-                            <input type="time" id="swal-massal-jam-pulang" class="form-control">
+                            <label class="form-label fw-bold mb-1" style="font-size:13px;">Jam Pulang Baru</label>
+                            <input type="time" id="swal-massal-jam-pulang" class="form-control" value="16:00">
                         </div>
                     </div>
                     <small class="text-muted d-block mt-2" style="font-size:11px;">* Kosongkan jam jika tidak ingin merubah data jam.</small>
@@ -962,6 +970,9 @@
             let oldTitle = el.getAttribute('data-bs-original-title') || el.title || '';
             let match = oldTitle.match(/\((\d{2}:\d{2})\)/);
             let oldTime = match ? match[1] : '';
+            let isAlpa = currentColor === 'bg-alpa' || oldTitle.toLowerCase().includes('alpa') || oldTitle.toLowerCase().includes('kosong');
+            let defaultJamMasuk = oldTime ? oldTime : '07:30';
+            let defaultJamPulang = '16:00';
 
             Swal.fire({
                 title: 'Ubah Status & Jam',
@@ -972,23 +983,25 @@
                         <label class="form-label fw-bold" style="font-size:13px;">Status Kehadiran Baru</label>
                         <select id="swal-input-status" class="form-select mb-3">
                             <option value="Sangat Baik / Istimewa">Sangat Baik / Istimewa (Hijau Tua)</option>
-                            <option value="Baik" selected>Baik / Tepat Waktu (Hijau Daun)</option>
+                            <option value="Baik" ${isAlpa ? 'selected' : ''}>Baik / Tepat Waktu (Hijau Daun)</option>
                             <option value="Cukup Baik">Cukup Baik (Hijau Muda)</option>
                             <option value="Terlambat">Terlambat (Kuning)</option>
                             <option value="Pembinaan">Pembinaan (Kuning Terang)</option>
                             <option value="Teguran">Teguran (Coklat/Hitam)</option>
+                            <option value="Alpa">Alpa / Tanpa Keterangan (Merah)</option>
                         </select>
 
-                        <div class="row">
+                        <div class="row g-2">
                             <div class="col-6">
-                                <label class="form-label fw-bold" style="font-size:13px;">Jam Masuk</label>
-                                <input type="time" id="swal-input-jam" class="form-control" value="${oldTime}">
+                                <label class="form-label fw-bold mb-1" style="font-size:13px;">Jam Masuk</label>
+                                <input type="time" id="swal-input-jam" class="form-control" value="${defaultJamMasuk}">
                             </div>
                             <div class="col-6">
-                                <label class="form-label fw-bold" style="font-size:13px;">Jam Pulang</label>
-                                <input type="time" id="swal-input-jam-pulang" class="form-control">
+                                <label class="form-label fw-bold mb-1" style="font-size:13px;">Jam Pulang</label>
+                                <input type="time" id="swal-input-jam-pulang" class="form-control" value="${defaultJamPulang}">
                             </div>
                         </div>
+                        <small class="text-muted d-block mt-2" style="font-size:11px;">* Jam masuk dan pulang dapat disesuaikan untuk data Alpa maupun Terlambat.</small>
                         <small class="text-muted d-block mt-2" style="font-size:11px;">* Kosongkan jika tidak ingin merubah jam terkait.</small>
                     </div>
                 `,
