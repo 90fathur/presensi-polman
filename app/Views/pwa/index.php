@@ -18,8 +18,18 @@ function getStatusAbsen($jam, $status_db = '')
         return ['teks'  => '-', 'class' => 'status-badge state-empty'];
     }
 
-    if ($status_db == 'Sangat Baik / Istimewa') {
-        return ['teks' => 'Sangat Baik', 'class' => 'status-badge state-success'];
+    $st_lower = strtolower(trim((string)$status_db));
+
+    if (strpos($st_lower, 'istimewa') !== false || strpos($st_lower, 'sangat baik') !== false || strpos($st_lower, 'tepat waktu') !== false) {
+        return ['teks' => $status_db ?: 'Sangat Baik', 'class' => 'status-badge state-success'];
+    } elseif (strpos($st_lower, 'p1') !== false) {
+        return ['teks' => $status_db, 'class' => 'status-badge state-info'];
+    } elseif (strpos($st_lower, 'p2') !== false) {
+        return ['teks' => $status_db, 'class' => 'status-badge state-warning'];
+    } elseif (strpos($st_lower, 'p3') !== false) {
+        return ['teks' => $status_db, 'class' => 'status-badge state-danger'];
+    } elseif (strpos($st_lower, 'p4') !== false) {
+        return ['teks' => $status_db, 'class' => 'status-badge state-dark'];
     } elseif ($status_db == 'Baik') {
         return ['teks' => 'Baik', 'class' => 'status-badge state-info'];
     } elseif ($status_db == 'Cukup Baik') {
@@ -1082,7 +1092,19 @@ $hp_kosong = empty($pegawai['nomor_hp']);
                     $st_p_class = 'state-empty';
                     if ($dt_p) {
                         $db_st_p = strtolower(trim($terakhir['status_pulang'] ?? ''));
-                        if ($db_st_p == 'cepat pulang') {
+                        if (strpos($db_st_p, 'p1') !== false) {
+                            $st_p_label = $terakhir['status_pulang'] ?? 'Pulang Cepat (P1)';
+                            $st_p_class = 'state-info';
+                        } elseif (strpos($db_st_p, 'p2') !== false) {
+                            $st_p_label = $terakhir['status_pulang'] ?? 'Pulang Cepat (P2)';
+                            $st_p_class = 'state-warning';
+                        } elseif (strpos($db_st_p, 'p3') !== false) {
+                            $st_p_label = $terakhir['status_pulang'] ?? 'Pulang Cepat (P3)';
+                            $st_p_class = 'state-danger';
+                        } elseif (strpos($db_st_p, 'p4') !== false) {
+                            $st_p_label = $terakhir['status_pulang'] ?? 'Pulang Cepat (P4)';
+                            $st_p_class = 'state-dark';
+                        } elseif (strpos($db_st_p, 'cepat') !== false) {
                             $st_p_label = 'Cepat Pulang';
                             $st_p_class = 'state-danger';
                         } else {

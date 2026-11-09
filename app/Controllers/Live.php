@@ -40,18 +40,19 @@ class Live extends BaseController
                 $total_hadir++;
                 $status_db = $row['status_masuk'] ?? '';
 
-                if ($status_db == 'Sangat Baik / Istimewa' || $status_db == 'Sangat Baik' || strpos($status_db, 'Apel') !== false) {
+                $lbl_m = strtolower($status_db);
+                if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false || strpos($lbl_m, 'tepat waktu') !== false || strpos($lbl_m, 'apel') !== false || strpos($lbl_m, 'standby') !== false) {
                     $cat_istimewa++;
-                } elseif ($status_db == 'Baik' || $status_db == 'Tepat Waktu') {
-                    $cat_baik++;
-                } elseif ($status_db == 'Cukup Baik') {
+                } elseif (strpos($lbl_m, 'p1') !== false || $lbl_m == 'cukup baik') {
                     $cat_cukup++;
-                } elseif ($status_db == 'Terlambat') {
+                } elseif (strpos($lbl_m, 'p2') !== false || $lbl_m == 'terlambat') {
                     $cat_telat++;
-                } elseif ($status_db == 'Pembinaan') {
+                } elseif (strpos($lbl_m, 'p3') !== false || strpos($lbl_m, 'pembinaan') !== false) {
                     $cat_bina++;
-                } elseif ($status_db == 'Teguran') {
+                } elseif (strpos($lbl_m, 'p4') !== false || strpos($lbl_m, 'teguran') !== false) {
                     $cat_teguran++;
+                } elseif ($lbl_m == 'baik') {
+                    $cat_baik++;
                 } else {
                     $cat_baik++;
                 }
@@ -182,19 +183,20 @@ class Live extends BaseController
                     $st = $row['status_masuk'] ?? '';
                     $bg = 'bg-secondary'; $icon = 'fa-check-circle'; $border_card = 'border-secondary';
 
-                    if ($st == 'Sangat Baik / Istimewa' || $st == 'Sangat Baik') {
+                    $lbl_st = strtolower($st);
+                    if (strpos($lbl_st, 'istimewa') !== false || strpos($lbl_st, 'sangat baik') !== false || strpos($lbl_st, 'tepat waktu') !== false) {
                         $bg = 'bg-primary'; $icon = 'fa-star'; $border_card = 'border-primary';
-                    } elseif ($st == 'Baik' || $st == 'Tepat Waktu') {
-                        $bg = 'bg-success'; $icon = 'fa-check-circle'; $border_card = 'border-success';
-                    } elseif ($st == 'Cukup Baik') {
+                    } elseif (strpos($lbl_st, 'p1') !== false || $lbl_st == 'cukup baik') {
                         $bg = 'bg-success bg-opacity-75'; $icon = 'fa-check-circle'; $border_card = 'border-success';
-                    } elseif ($st == 'Terlambat') {
+                    } elseif (strpos($lbl_st, 'p2') !== false || $lbl_st == 'terlambat') {
                         $bg = 'bg-warning text-dark'; $icon = 'fa-clock'; $border_card = 'border-warning';
-                    } elseif ($st == 'Pembinaan') {
+                    } elseif (strpos($lbl_st, 'p3') !== false || strpos($lbl_st, 'pembinaan') !== false) {
                         $bg = 'bg-warning text-dark'; $icon = 'fa-exclamation-triangle'; $border_card = 'border-warning';
-                    } elseif ($st == 'Teguran') {
+                    } elseif (strpos($lbl_st, 'p4') !== false || strpos($lbl_st, 'teguran') !== false) {
                         $bg = 'bg-danger'; $icon = 'fa-times-circle'; $border_card = 'border-danger';
-                    } elseif (strpos($st, 'Apel') !== false) {
+                    } elseif ($lbl_st == 'baik') {
+                        $bg = 'bg-success'; $icon = 'fa-check-circle'; $border_card = 'border-success';
+                    } elseif (strpos($lbl_st, 'apel') !== false) {
                         $bg = 'bg-primary'; $icon = 'fa-users'; $border_card = 'border-primary';
                     } else {
                         $bg = 'bg-success'; $icon = 'fa-check-circle'; $border_card = 'border-success';

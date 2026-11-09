@@ -224,10 +224,10 @@ $bulan_list = [
                     <tr>
                         <th width="30" class="bg-st-istimewa border-0" title="Sangat Baik / Istimewa">IS</th>
                         <th width="30" class="bg-st-baik border-0" title="Baik">B</th>
-                        <th width="30" class="bg-st-cukup border-0" title="Cukup Baik">CB</th>
-                        <th width="30" class="bg-st-telat border-0" title="Terlambat">TB</th>
-                        <th width="30" class="bg-st-bina border-0" title="Pembinaan">PB</th>
-                        <th width="30" class="bg-st-teguran border-0" title="Teguran">TG</th>
+                        <th width="30" class="bg-st-cukup border-0" title="Cukup Baik / P1 (1-30 Menit)">P1</th>
+                        <th width="30" class="bg-st-telat border-0" title="Terlambat / P2 (31-60 Menit)">P2</th>
+                        <th width="30" class="bg-st-bina border-0" title="Pembinaan / P3 (61-90 Menit)">P3</th>
+                        <th width="30" class="bg-st-teguran border-0" title="Teguran / P4 (>90 Menit)">P4</th>
 
                         <th width="30" class="bg-light text-dark border-0">X</th>
                         <th width="45" class="bg-light text-dark border-0">Menit</th>

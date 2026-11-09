@@ -73,21 +73,21 @@ class Home extends BaseController
                 $total_hadir++;
                 $status_db = $row['status_masuk'] ?? '';
 
-                // Mapping Langsung Berdasarkan Teks di Database
-                if ($status_db == 'Sangat Baik / Istimewa' || $status_db == 'Sangat Baik' || strpos($status_db, 'Apel') !== false) {
+                // Mapping Langsung Berdasarkan Teks di Database (Dual Compatibility Perbup P1-P4 & Legacy)
+                $lbl_m = strtolower($status_db);
+                if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false || strpos($lbl_m, 'tepat waktu') !== false || strpos($lbl_m, 'apel') !== false || strpos($lbl_m, 'standby') !== false) {
                     $cat_istimewa++;
-                } elseif ($status_db == 'Baik') {
-                    $cat_baik++;
-                } elseif ($status_db == 'Cukup Baik') {
+                } elseif (strpos($lbl_m, 'p1') !== false || $lbl_m == 'cukup baik') {
                     $cat_cukup++;
-                } elseif ($status_db == 'Terlambat') {
+                } elseif (strpos($lbl_m, 'p2') !== false || $lbl_m == 'terlambat') {
                     $cat_telat++;
-                } elseif ($status_db == 'Pembinaan') {
+                } elseif (strpos($lbl_m, 'p3') !== false || strpos($lbl_m, 'pembinaan') !== false) {
                     $cat_bina++;
-                } elseif ($status_db == 'Teguran') {
+                } elseif (strpos($lbl_m, 'p4') !== false || strpos($lbl_m, 'teguran') !== false) {
                     $cat_teguran++;
+                } elseif ($lbl_m == 'baik') {
+                    $cat_baik++;
                 } else {
-                    // Fallback jika statusnya "Tepat Waktu" (Inputan Manual Admin)
                     $cat_baik++;
                 }
             }
@@ -179,6 +179,8 @@ class Home extends BaseController
                 $builder->groupStart()
                     ->where('presensi.status_masuk', 'Sangat Baik / Istimewa')
                     ->orWhere('presensi.status_masuk', 'Sangat Baik')
+                    ->orLike('presensi.status_masuk', 'Istimewa')
+                    ->orWhere('presensi.status_masuk', 'Tepat Waktu')
                     ->orLike('presensi.status_masuk', 'Apel')
                     ->groupEnd();
             } elseif ($filter_kategori == 'Baik') {
@@ -190,16 +192,32 @@ class Home extends BaseController
                     ->where('presensi.jam_masuk_aktual !=', '00:00:00')
                     ->whereNotIn('presensi.status_masuk', ['Sangat Baik / Istimewa', 'Sangat Baik', 'Cukup Baik', 'Terlambat', 'Pembinaan', 'Teguran'])
                     ->notLike('presensi.status_masuk', 'Apel')
+                    ->notLike('presensi.status_masuk', 'P1')
+                    ->notLike('presensi.status_masuk', 'P2')
+                    ->notLike('presensi.status_masuk', 'P3')
+                    ->notLike('presensi.status_masuk', 'P4')
                     ->groupEnd()
                     ->groupEnd();
-            } elseif ($filter_kategori == 'Cukup Baik') {
-                $builder->where('presensi.status_masuk', 'Cukup Baik');
-            } elseif ($filter_kategori == 'Terlambat') {
-                $builder->where('presensi.status_masuk', 'Terlambat');
-            } elseif ($filter_kategori == 'Pembinaan') {
-                $builder->where('presensi.status_masuk', 'Pembinaan');
-            } elseif ($filter_kategori == 'Teguran') {
-                $builder->where('presensi.status_masuk', 'Teguran');
+            } elseif ($filter_kategori == 'Cukup Baik' || $filter_kategori == 'P1') {
+                $builder->groupStart()
+                    ->where('presensi.status_masuk', 'Cukup Baik')
+                    ->orLike('presensi.status_masuk', 'P1')
+                    ->groupEnd();
+            } elseif ($filter_kategori == 'Terlambat' || $filter_kategori == 'P2') {
+                $builder->groupStart()
+                    ->where('presensi.status_masuk', 'Terlambat')
+                    ->orLike('presensi.status_masuk', 'P2')
+                    ->groupEnd();
+            } elseif ($filter_kategori == 'Pembinaan' || $filter_kategori == 'P3') {
+                $builder->groupStart()
+                    ->where('presensi.status_masuk', 'Pembinaan')
+                    ->orLike('presensi.status_masuk', 'P3')
+                    ->groupEnd();
+            } elseif ($filter_kategori == 'Teguran' || $filter_kategori == 'P4') {
+                $builder->groupStart()
+                    ->where('presensi.status_masuk', 'Teguran')
+                    ->orLike('presensi.status_masuk', 'P4')
+                    ->groupEnd();
             } elseif ($filter_kategori == 'Izin/Sakit/TL') {
                 $builder->groupStart()
                     ->like('presensi.kategori', 'Izin')
@@ -275,25 +293,26 @@ class Home extends BaseController
                 $nestedData[] = ($row['jam_siang'] ? date('H:i', strtotime($row['jam_siang'])) : '<span class="text-muted">--:--</span>');
                 $nestedData[] = ($row['jam_pulang_aktual'] ? date('H:i', strtotime($row['jam_pulang_aktual'])) : '<span class="text-muted">--:--</span>');
 
-                // Status Masuk
+                // Status Masuk (Cover P1-P4 & Legacy)
                 $jamMasuk = $row['jam_masuk_aktual'];
                 if (!$jamMasuk) {
                     $badgeMasuk = '<span class="badge bg-light text-muted border">Belum Absen</span>';
                 } else {
                     $status_db = $row['status_masuk'] ?? '';
-                    if ($status_db == 'Sangat Baik / Istimewa' || $status_db == 'Sangat Baik') {
+                    $lbl_m = strtolower($status_db);
+                    if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false || strpos($lbl_m, 'tepat waktu') !== false) {
                         $badgeMasuk = '<span class="badge bg-istimewa rounded-pill px-3">' . $status_db . '</span>';
-                    } elseif ($status_db == 'Baik') {
-                        $badgeMasuk = '<span class="badge bg-baik rounded-pill px-3">' . $status_db . '</span>';
-                    } elseif ($status_db == 'Cukup Baik') {
+                    } elseif (strpos($lbl_m, 'p1') !== false || $lbl_m == 'cukup baik') {
                         $badgeMasuk = '<span class="badge bg-cukup text-dark rounded-pill px-3">' . $status_db . '</span>';
-                    } elseif ($status_db == 'Terlambat') {
+                    } elseif (strpos($lbl_m, 'p2') !== false || $lbl_m == 'terlambat') {
                         $badgeMasuk = '<span class="badge bg-telat text-dark rounded-pill px-3">' . $status_db . '</span>';
-                    } elseif ($status_db == 'Pembinaan') {
+                    } elseif (strpos($lbl_m, 'p3') !== false || strpos($lbl_m, 'pembinaan') !== false) {
                         $badgeMasuk = '<span class="badge bg-bina text-dark rounded-pill px-3">' . $status_db . '</span>';
-                    } elseif ($status_db == 'Teguran') {
+                    } elseif (strpos($lbl_m, 'p4') !== false || strpos($lbl_m, 'teguran') !== false) {
                         $badgeMasuk = '<span class="badge bg-teguran rounded-pill px-3">' . $status_db . '</span>';
-                    } elseif (strpos($status_db, 'Apel') !== false) {
+                    } elseif ($lbl_m == 'baik') {
+                        $badgeMasuk = '<span class="badge bg-baik rounded-pill px-3">' . $status_db . '</span>';
+                    } elseif (strpos($lbl_m, 'apel') !== false) {
                         $badgeMasuk = '<span class="badge bg-primary rounded-pill px-3">' . $status_db . '</span>';
                     } else {
                         $badgeMasuk = '<span class="badge bg-secondary rounded-pill px-3">' . ($status_db ?: 'Hadir') . '</span>';
@@ -301,11 +320,12 @@ class Home extends BaseController
                 }
                 $nestedData[] = $badgeMasuk;
 
-                // Status Pulang
-                $statusPulangDB = ucwords(strtolower($row['status_pulang'] ?? ''));
-                if ($statusPulangDB == 'Cepat Pulang') {
-                    $badgePulang = '<span class="badge bg-cepul rounded-pill px-3">Cepat Pulang</span>';
-                } elseif ($statusPulangDB == 'Selesai') {
+                // Status Pulang (Cover P1-P4 & Legacy)
+                $statusPulangDB = $row['status_pulang'] ?? '';
+                $lbl_p = strtolower($statusPulangDB);
+                if (strpos($lbl_p, 'p1') !== false || strpos($lbl_p, 'p2') !== false || strpos($lbl_p, 'p3') !== false || strpos($lbl_p, 'p4') !== false || strpos($lbl_p, 'cepat') !== false) {
+                    $badgePulang = '<span class="badge bg-cepul rounded-pill px-3">' . ($statusPulangDB ?: 'Cepat Pulang') . '</span>';
+                } elseif (strpos($lbl_p, 'selesai') !== false) {
                     $badgePulang = '<span class="badge bg-selesai rounded-pill px-3">Selesai</span>';
                 } else {
                     $badgePulang = '<span class="badge bg-light text-muted border">-</span>';

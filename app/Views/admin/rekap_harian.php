@@ -296,20 +296,20 @@ $bulan_list = [
                                             $is_absen_khusus = (strpos($lbl_m, 'izin') !== false || strpos($lbl_m, 'sakit') !== false || strpos($lbl_m, 'luar') !== false || strpos($lbl_m, 'cuti') !== false || strpos($lbl_m, 'standby') !== false || strpos($lbl_m, 'libur') !== false || strpos($lbl_m, 'alpa') !== false);
 
                                             $cls_m = 'bg-st-default';
-                                            if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false) $cls_m = 'bg-st-istimewa';
+                                            if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false || strpos($lbl_m, 'tepat waktu') !== false) $cls_m = 'bg-st-istimewa';
+                                            elseif (strpos($lbl_m, 'p1') !== false || strpos($lbl_m, 'cukup') !== false) $cls_m = 'bg-st-cukup';
+                                            elseif (strpos($lbl_m, 'p2') !== false || strpos($lbl_m, 'terlambat') !== false) $cls_m = 'bg-st-telat';
+                                            elseif (strpos($lbl_m, 'p3') !== false || strpos($lbl_m, 'pembinaan') !== false) $cls_m = 'bg-st-bina';
+                                            elseif (strpos($lbl_m, 'p4') !== false || strpos($lbl_m, 'teguran') !== false) $cls_m = 'bg-st-teguran';
                                             elseif ($lbl_m == 'baik') $cls_m = 'bg-st-baik';
-                                            elseif (strpos($lbl_m, 'cukup') !== false) $cls_m = 'bg-st-cukup';
-                                            elseif (strpos($lbl_m, 'terlambat') !== false) $cls_m = 'bg-st-telat';
-                                            elseif (strpos($lbl_m, 'pembinaan') !== false) $cls_m = 'bg-st-bina';
-                                            elseif (strpos($lbl_m, 'teguran') !== false) $cls_m = 'bg-st-teguran';
                                             elseif (strpos($lbl_m, 'apel') !== false) $cls_m = 'bg-st-apel';
                                             elseif (strpos($lbl_m, 'standby') !== false) $cls_m = 'bg-st-standby border border-info'; // [FITUR BARU]
                                             elseif ($is_absen_khusus) $cls_m = 'bg-st-izin';
 
                                             $lbl_p = strtolower($r['status_pulang_label'] ?? '');
                                             $cls_p = 'bg-st-default';
-                                            if ($lbl_p == 'cepat pulang') $cls_p = 'bg-st-cepul';
-                                            elseif ($lbl_p == 'selesai') $cls_p = 'bg-st-selesai';
+                                            if (strpos($lbl_p, 'cepat') !== false || strpos($lbl_p, 'p1') !== false || strpos($lbl_p, 'p2') !== false || strpos($lbl_p, 'p3') !== false || strpos($lbl_p, 'p4') !== false) $cls_p = 'bg-st-cepul';
+                                            elseif (strpos($lbl_p, 'selesai') !== false) $cls_p = 'bg-st-selesai';
                                             ?>
 
                                             <?php if (empty($r['status_pulang_label']) || $is_absen_khusus): ?>
@@ -427,20 +427,20 @@ $bulan_list = [
                                                 $is_absen_khusus = (strpos($lbl_m, 'izin') !== false || strpos($lbl_m, 'sakit') !== false || strpos($lbl_m, 'luar') !== false || strpos($lbl_m, 'cuti') !== false || strpos($lbl_m, 'standby') !== false || strpos($lbl_m, 'libur') !== false || strpos($lbl_m, 'alpa') !== false);
 
                                                 $cls_m = 'bg-st-default';
-                                                if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false) $cls_m = 'bg-st-istimewa';
+                                                if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false || strpos($lbl_m, 'tepat waktu') !== false) $cls_m = 'bg-st-istimewa';
+                                                elseif (strpos($lbl_m, 'p1') !== false || strpos($lbl_m, 'cukup') !== false) $cls_m = 'bg-st-cukup';
+                                                elseif (strpos($lbl_m, 'p2') !== false || strpos($lbl_m, 'terlambat') !== false) $cls_m = 'bg-st-telat';
+                                                elseif (strpos($lbl_m, 'p3') !== false || strpos($lbl_m, 'pembinaan') !== false) $cls_m = 'bg-st-bina';
+                                                elseif (strpos($lbl_m, 'p4') !== false || strpos($lbl_m, 'teguran') !== false) $cls_m = 'bg-st-teguran';
                                                 elseif ($lbl_m == 'baik') $cls_m = 'bg-st-baik';
-                                                elseif (strpos($lbl_m, 'cukup') !== false) $cls_m = 'bg-st-cukup';
-                                                elseif (strpos($lbl_m, 'terlambat') !== false) $cls_m = 'bg-st-telat';
-                                                elseif (strpos($lbl_m, 'pembinaan') !== false) $cls_m = 'bg-st-bina';
-                                                elseif (strpos($lbl_m, 'teguran') !== false) $cls_m = 'bg-st-teguran';
                                                 elseif (strpos($lbl_m, 'apel') !== false) $cls_m = 'bg-st-apel';
                                                 elseif (strpos($lbl_m, 'standby') !== false) $cls_m = 'bg-st-standby border border-info'; // [FITUR BARU]
                                                 elseif ($is_absen_khusus) $cls_m = 'bg-st-izin';
 
                                                 $lbl_p = strtolower($r['status_pulang_label'] ?? '');
                                                 $cls_p = 'bg-st-default';
-                                                if ($lbl_p == 'cepat pulang') $cls_p = 'bg-st-cepul';
-                                                elseif ($lbl_p == 'selesai') $cls_p = 'bg-st-selesai';
+                                                if (strpos($lbl_p, 'cepat') !== false || strpos($lbl_p, 'p1') !== false || strpos($lbl_p, 'p2') !== false || strpos($lbl_p, 'p3') !== false || strpos($lbl_p, 'p4') !== false) $cls_p = 'bg-st-cepul';
+                                                elseif (strpos($lbl_p, 'selesai') !== false) $cls_p = 'bg-st-selesai';
                                                 ?>
 
                                                 <?php if (empty($r['status_pulang_label']) || $is_absen_khusus): ?>

@@ -54,6 +54,20 @@
         background-color: #070404 !important;
     }
 
+    /* ALIAS PREDIKAT PERBUP */
+    .bg-st-p1 {
+        background-color: #8ce196 !important;
+    }
+    .bg-st-p2 {
+        background-color: #ffda6a !important;
+    }
+    .bg-st-p3 {
+        background-color: #ffc107 !important;
+    }
+    .bg-st-p4 {
+        background-color: #070404 !important;
+    }
+
     /* Hitam Terang */
     .bg-st-izin {
         background-color: #6f42c1 !important;
@@ -217,12 +231,12 @@
     <div class="card bg-light border-0 shadow-sm mb-3 p-3 no-print">
         <h6 class="fw-bold mb-2 small text-dark"><i class="fas fa-palette me-1"></i> Keterangan Warna Predikat Absen Masuk</h6>
         <div class="d-flex flex-wrap gap-3 text-muted" style="font-size: 0.75rem;">
-            <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #155724;"></span> Istimewa</div>
-            <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #28a745;"></span> Baik</div>
-            <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #8ce196;"></span> Cukup Baik</div>
-            <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #ffda6a;"></span> Terlambat</div>
-            <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #ffc107;"></span> Pembinaan</div>
-            <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #070404;"></span> Teguran</div>
+            <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #155724;"></span> Istimewa / Tepat Waktu</div>
+            <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #8ce196;"></span> Terlambat P1 (1-30')</div>
+            <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #ffda6a;"></span> Terlambat P2 (31-60')</div>
+            <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #ffc107;"></span> Terlambat P3 (61-90')</div>
+            <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #070404;"></span> Terlambat P4 (>90')</div>
+            <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #28a745;"></span> Baik (Tepat Waktu)</div>
             <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #6f42c1;"></span> Izin/Sakit/TL</div>
             <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #fed7aa;"></span> Libur/Akhir Pekan</div>
             <div class="d-flex align-items-center"><span class="rounded me-2" style="width: 14px; height: 14px; background-color: #ef4444;"></span> Alpa/Tanpa Ket</div>
@@ -292,10 +306,10 @@ if ($is_superadmin_view):
 
                                     if ($col === 'bg-st-istimewa') $c_istimewa++;
                                     elseif ($col === 'bg-st-baik' || $col === 'bg-st-apel') $c_baik++;
-                                    elseif ($col === 'bg-st-cukup') $c_cukup++;
-                                    elseif ($col === 'bg-st-telat') $c_telat++;
-                                    elseif ($col === 'bg-st-bina') $c_bina++;
-                                    elseif ($col === 'bg-st-teguran') $c_tegur++;
+                                    elseif ($col === 'bg-st-cukup' || $col === 'bg-st-p1') $c_cukup++;
+                                    elseif ($col === 'bg-st-telat' || $col === 'bg-st-p2') $c_telat++;
+                                    elseif ($col === 'bg-st-bina' || $col === 'bg-st-p3') $c_bina++;
+                                    elseif ($col === 'bg-st-teguran' || $col === 'bg-st-p4') $c_tegur++;
                                     elseif ($col === 'bg-st-izin') $c_izin++;
                                     elseif ($col === 'bg-libur') $c_libur++;
                                     elseif ($col === 'bg-alpa') $c_alpa++;
@@ -327,10 +341,10 @@ if ($is_superadmin_view):
                                         <div class="d-flex flex-wrap gap-1 no-print" style="font-size: 0.65rem; font-weight: 600;">
                                             <?php if ($p_ist > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #155724; color: white;">Istimewa: <?= $p_ist ?>%</span><?php endif; ?>
                                             <?php if ($p_baik > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #28a745; color: white;">Baik: <?= $p_baik ?>%</span><?php endif; ?>
-                                            <?php if ($p_ckp > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #8ce196; color: #212529;">Cukup: <?= $p_ckp ?>%</span><?php endif; ?>
-                                            <?php if ($p_tlt > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #ffda6a; color: #212529;">Telat: <?= $p_tlt ?>%</span><?php endif; ?>
-                                            <?php if ($p_bna > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #ffc107; color: #212529;">Bina: <?= $p_bna ?>%</span><?php endif; ?>
-                                            <?php if ($p_tgr > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #070404; color: white;">Teguran: <?= $p_tgr ?>%</span><?php endif; ?>
+                                            <?php if ($p_ckp > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #8ce196; color: #212529;">P1 (Cukup): <?= $p_ckp ?>%</span><?php endif; ?>
+                                            <?php if ($p_tlt > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #ffda6a; color: #212529;">P2 (Telat): <?= $p_tlt ?>%</span><?php endif; ?>
+                                            <?php if ($p_bna > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #ffc107; color: #212529;">P3 (Bina): <?= $p_bna ?>%</span><?php endif; ?>
+                                            <?php if ($p_tgr > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #070404; color: white;">P4 (Teguran): <?= $p_tgr ?>%</span><?php endif; ?>
                                             <?php if ($p_izn > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #6f42c1; color: white;">Izin/TL: <?= $p_izn ?>%</span><?php endif; ?>
                                             <?php if ($p_lbr > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #fed7aa; color: #212529;">Libur: <?= $p_lbr ?>%</span><?php endif; ?>
                                             <?php if ($p_alp > 0): ?><span class="badge shadow-sm border border-light" style="background-color: #ef4444; color: white;">Alpa: <?= $p_alp ?>%</span><?php endif; ?>
@@ -863,10 +877,14 @@ if ($is_superadmin_view):
                     <select id="swal-massal-status" class="form-select mb-3">
                         <option value="Sangat Baik / Istimewa">Sangat Baik / Istimewa (Hijau Tua)</option>
                         <option value="Baik" selected>Baik / Tepat Waktu (Hijau Daun)</option>
-                        <option value="Cukup Baik">Cukup Baik (Hijau Muda)</option>
-                        <option value="Terlambat">Terlambat (Kuning)</option>
-                        <option value="Pembinaan">Pembinaan (Kuning Terang)</option>
-                        <option value="Teguran">Teguran (Coklat/Hitam)</option>
+                        <option value="Terlambat (P1)">Terlambat (P1) (1-30 Menit - Hijau Muda)</option>
+                        <option value="Terlambat (P2)">Terlambat (P2) (31-60 Menit - Kuning Pudar)</option>
+                        <option value="Terlambat (P3)">Terlambat (P3) (61-90 Menit - Kuning Terang)</option>
+                        <option value="Terlambat (P4)">Terlambat (P4) (>90 Menit - Hitam)</option>
+                        <option value="Cukup Baik">Cukup Baik (Legacy)</option>
+                        <option value="Terlambat">Terlambat (Legacy)</option>
+                        <option value="Pembinaan">Pembinaan (Legacy)</option>
+                        <option value="Teguran">Teguran (Legacy)</option>
                         <option value="Alpa">Alpa / Tanpa Keterangan (Merah)</option>
                     </select>
 
@@ -984,10 +1002,14 @@ if ($is_superadmin_view):
                         <select id="swal-input-status" class="form-select mb-3">
                             <option value="Sangat Baik / Istimewa">Sangat Baik / Istimewa (Hijau Tua)</option>
                             <option value="Baik" ${isAlpa ? 'selected' : ''}>Baik / Tepat Waktu (Hijau Daun)</option>
-                            <option value="Cukup Baik">Cukup Baik (Hijau Muda)</option>
-                            <option value="Terlambat">Terlambat (Kuning)</option>
-                            <option value="Pembinaan">Pembinaan (Kuning Terang)</option>
-                            <option value="Teguran">Teguran (Coklat/Hitam)</option>
+                            <option value="Terlambat (P1)">Terlambat (P1) (1-30 Menit - Hijau Muda)</option>
+                            <option value="Terlambat (P2)">Terlambat (P2) (31-60 Menit - Kuning Pudar)</option>
+                            <option value="Terlambat (P3)">Terlambat (P3) (61-90 Menit - Kuning Terang)</option>
+                            <option value="Terlambat (P4)">Terlambat (P4) (>90 Menit - Hitam)</option>
+                            <option value="Cukup Baik">Cukup Baik (Legacy)</option>
+                            <option value="Terlambat">Terlambat (Legacy)</option>
+                            <option value="Pembinaan">Pembinaan (Legacy)</option>
+                            <option value="Teguran">Teguran (Legacy)</option>
                             <option value="Alpa">Alpa / Tanpa Keterangan (Merah)</option>
                         </select>
 

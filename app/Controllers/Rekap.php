@@ -466,19 +466,21 @@ class Rekap extends BaseController
                                     $config = $map_jadwal[$active_id_jam][$nama_hari] ?? null;
                                     if ($config) {
                                         $diff = (strtotime($p['jam_masuk_aktual']) - strtotime(str_replace('.', ':', $config['jam_masuk']))) / 60;
-                                        if ($diff <= 0) $status_db = 'Sangat Baik / Istimewa';
-                                        elseif ($diff <= ($config['batas_baik_menit'] ?? 15)) $status_db = 'Baik';
-                                        elseif ($diff <= ($config['batas_cukup_menit'] ?? 45)) $status_db = 'Cukup Baik';
-                                        elseif ($diff <= ($config['batas_telat_menit'] ?? 90)) $status_db = 'Terlambat';
-                                        elseif ($diff <= ($config['batas_bina_menit'] ?? 150)) $status_db = 'Pembinaan';
-                                        else $status_db = 'Teguran';
+                                        if ($diff <= 0) {
+                                            $menit_awal = abs($diff);
+                                            $status_db = ($menit_awal >= 30) ? 'Istimewa (Datang Awal 🎖️)' : 'Sangat Baik / Istimewa';
+                                        } elseif ($diff <= 30) $status_db = 'Terlambat (P1)';
+                                        elseif ($diff <= 60) $status_db = 'Terlambat (P2)';
+                                        elseif ($diff <= 90) $status_db = 'Terlambat (P3)';
+                                        else $status_db = 'Terlambat (P4)';
                                     }
                                 }
                             }
 
                             $data_hari['status'] = $status_db ?: 'Hadir';
 
-                            if (in_array($data_hari['status'], ['Terlambat', 'Pembinaan', 'Teguran'])) {
+                            $st_cek = strtolower($data_hari['status']);
+                            if (in_array($data_hari['status'], ['Terlambat', 'Pembinaan', 'Teguran']) || strpos($st_cek, 'terlambat') !== false || strpos($st_cek, 'p1') !== false || strpos($st_cek, 'p2') !== false || strpos($st_cek, 'p3') !== false || strpos($st_cek, 'p4') !== false) {
                                 $data_hari['telat'] = intval($p['menit_keterlambatan']);
                             } else {
                                 $data_hari['telat'] = 0;
@@ -492,8 +494,13 @@ class Rekap extends BaseController
                                 } else {
                                     $config = $map_jadwal[$active_id_jam][$nama_hari] ?? null;
                                     if ($config && !empty($config['jam_pulang'])) {
-                                        if ($p['jam_pulang_aktual'] < str_replace('.', ':', $config['jam_pulang'])) {
-                                            $st_pulang = 'Cepat Pulang';
+                                        $target_p = str_replace('.', ':', $config['jam_pulang']);
+                                        if ($p['jam_pulang_aktual'] < $target_p) {
+                                            $diff_p = (strtotime($target_p) - strtotime($p['jam_pulang_aktual'])) / 60;
+                                            if ($diff_p <= 30) $st_pulang = 'Pulang Cepat (P1)';
+                                            elseif ($diff_p <= 60) $st_pulang = 'Pulang Cepat (P2)';
+                                            elseif ($diff_p <= 90) $st_pulang = 'Pulang Cepat (P3)';
+                                            else $st_pulang = 'Pulang Cepat (P4)';
                                         } else {
                                             $st_pulang = 'Selesai';
                                         }
@@ -846,7 +853,7 @@ class Rekap extends BaseController
         $builder->select("p.id_pegawai, p.nama_lengkap, p.nip, p.level_jabatan, p.eselon, p.jabatan, o.nama_opd, o.id_jam_kerja as id_jam_opd,
             COUNT(CASE WHEN pr.kategori = 'Hadir' AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' THEN 1 END) as total_hadir, 
             
-            SUM(CASE WHEN pr.status_masuk IN ('Terlambat', 'Pembinaan', 'Teguran') 
+            SUM(CASE WHEN (pr.status_masuk IN ('Terlambat', 'Pembinaan', 'Teguran') OR pr.status_masuk LIKE '%Terlambat%') 
                      AND COALESCE(pr.status_verifikasi, '') != 'Dianulir'
                      AND COALESCE(pr.deskripsi, '') NOT LIKE '%pagi%' 
                      AND COALESCE(pr.deskripsi, '') NOT LIKE '%awal%' 
@@ -854,7 +861,7 @@ class Rekap extends BaseController
                      AND COALESCE(pr.status_masuk, '') NOT LIKE '%sakit%' 
                  THEN 1 ELSE 0 END) as frekuensi_telat,
 
-            SUM(CASE WHEN pr.status_masuk IN ('Terlambat', 'Pembinaan', 'Teguran') 
+            SUM(CASE WHEN (pr.status_masuk IN ('Terlambat', 'Pembinaan', 'Teguran') OR pr.status_masuk LIKE '%Terlambat%') 
                      AND COALESCE(pr.status_verifikasi, '') != 'Dianulir'
                      AND COALESCE(pr.deskripsi, '') NOT LIKE '%pagi%' 
                      AND COALESCE(pr.deskripsi, '') NOT LIKE '%awal%' 
@@ -863,12 +870,12 @@ class Rekap extends BaseController
                  THEN CASE WHEN COALESCE(pr.menit_keterlambatan, 0) > 45 THEN pr.menit_keterlambatan - 45 ELSE 0 END 
                  ELSE 0 END) as total_menit_telat,
             
-            SUM(CASE WHEN pr.status_masuk = 'Sangat Baik / Istimewa' AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' THEN 1 ELSE 0 END) as st_istimewa,
+            SUM(CASE WHEN (pr.status_masuk LIKE '%Istimewa%' OR pr.status_masuk LIKE '%Sangat Baik%' OR pr.status_masuk = 'Tepat Waktu') AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' THEN 1 ELSE 0 END) as st_istimewa,
             SUM(CASE WHEN pr.status_masuk = 'Baik' AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' THEN 1 ELSE 0 END) as st_baik,
-            SUM(CASE WHEN pr.status_masuk = 'Cukup Baik' AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' THEN 1 ELSE 0 END) as st_cukup,
-            SUM(CASE WHEN pr.status_masuk = 'Terlambat' AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' THEN 1 ELSE 0 END) as st_telat,
-            SUM(CASE WHEN pr.status_masuk = 'Pembinaan' AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' THEN 1 ELSE 0 END) as st_bina,
-            SUM(CASE WHEN pr.status_masuk = 'Teguran' AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' THEN 1 ELSE 0 END) as st_teguran,
+            SUM(CASE WHEN (pr.status_masuk = 'Cukup Baik' OR pr.status_masuk LIKE '%P1%') AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' THEN 1 ELSE 0 END) as st_cukup,
+            SUM(CASE WHEN (pr.status_masuk = 'Terlambat' OR pr.status_masuk LIKE '%P2%') AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' THEN 1 ELSE 0 END) as st_telat,
+            SUM(CASE WHEN (pr.status_masuk = 'Pembinaan' OR pr.status_masuk LIKE '%P3%') AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' THEN 1 ELSE 0 END) as st_bina,
+            SUM(CASE WHEN (pr.status_masuk = 'Teguran' OR pr.status_masuk LIKE '%P4%') AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' THEN 1 ELSE 0 END) as st_teguran,
             
             SUM(CASE 
                 WHEN pr.kategori = 'Hadir' AND COALESCE(pr.status_verifikasi, '') != 'Dianulir' AND pr.jam_pulang_aktual IS NOT NULL AND pr.jam_pulang_aktual != '00:00:00' AND pr.jam_pulang_aktual > '04:00:00' AND pr.jam_pulang_aktual < pr.jam_pulang_seharusnya 
@@ -2787,20 +2794,19 @@ class Rekap extends BaseController
                         if ($is_cito && empty($st_final)) $st_final = 'Hadir (Standby)';
 
                         $lbl_m = strtolower($st_final);
-                        if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false) $bg = 'bg-st-istimewa';
+                        if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false || strpos($lbl_m, 'tepat waktu') !== false) $bg = 'bg-st-istimewa';
+                        elseif (strpos($lbl_m, 'p1') !== false || $lbl_m == 'cukup baik' || $lbl_m == 'cukup') $bg = 'bg-st-cukup';
+                        elseif (strpos($lbl_m, 'p2') !== false || $lbl_m == 'terlambat') $bg = 'bg-st-telat';
+                        elseif (strpos($lbl_m, 'p3') !== false || strpos($lbl_m, 'pembinaan') !== false) $bg = 'bg-st-bina';
+                        elseif (strpos($lbl_m, 'p4') !== false || strpos($lbl_m, 'teguran') !== false) $bg = 'bg-st-teguran';
                         elseif ($lbl_m == 'baik') $bg = 'bg-st-baik';
-                        elseif (strpos($lbl_m, 'cukup') !== false) $bg = 'bg-st-cukup';
-                        elseif (strpos($lbl_m, 'terlambat') !== false) $bg = 'bg-st-telat';
-                        elseif (strpos($lbl_m, 'pembinaan') !== false) $bg = 'bg-st-bina';
-                        elseif (strpos($lbl_m, 'teguran') !== false) $bg = 'bg-st-teguran';
                         elseif (strpos($lbl_m, 'standby') !== false) $bg = 'bg-info text-dark border-info';
                         else $bg = 'bg-st-baik';
 
                         $status = ucwords($st_final) . ' (' . date('H:i', strtotime($r['jam_masuk_aktual'])) . ')';
-                        if (in_array($st_final, ['Terlambat', 'Pembinaan', 'Teguran']) && !$is_cito) {
-                            $config = $map_jk[$active_id_jam] ?? null;
-                            $batas = $config ? ($config['batas_cukup_menit'] ?? 45) : 45;
-                            $r['telat'] = max(0, intval($r['menit_keterlambatan']) - $batas);
+                        $is_telat = (in_array($st_final, ['Terlambat', 'Pembinaan', 'Teguran']) || strpos($lbl_m, 'terlambat') !== false || strpos($lbl_m, 'p1') !== false || strpos($lbl_m, 'p2') !== false || strpos($lbl_m, 'p3') !== false || strpos($lbl_m, 'p4') !== false);
+                        if ($is_telat && !$is_cito) {
+                            $r['telat'] = intval($r['menit_keterlambatan']);
                         }
                     } else {
                         $bg = 'bg-danger text-white';
@@ -3283,12 +3289,13 @@ class Rekap extends BaseController
                                     $config = $map_jadwal[$active_id_jam_tmp][$nama_hari_full] ?? null;
                                     if ($config) {
                                         $diff = (strtotime($p['jam_masuk_aktual']) - strtotime(str_replace('.', ':', $config['jam_masuk']))) / 60;
-                                        if ($diff <= 0) $st_final = 'Sangat Baik / Istimewa';
-                                        elseif ($diff <= ($config['batas_baik_menit'] ?? 15)) $st_final = 'Baik';
-                                        elseif ($diff <= ($config['batas_cukup_menit'] ?? 45)) $st_final = 'Cukup Baik';
-                                        elseif ($diff <= ($config['batas_telat_menit'] ?? 90)) $st_final = 'Terlambat';
-                                        elseif ($diff <= ($config['batas_bina_menit'] ?? 150)) $st_final = 'Pembinaan';
-                                        else $st_final = 'Teguran';
+                                        if ($diff <= 0) {
+                                            $menit_awal = abs($diff);
+                                            $st_final = ($menit_awal >= 30) ? 'Istimewa (Datang Awal 🎖️)' : 'Sangat Baik / Istimewa';
+                                        } elseif ($diff <= 30) $st_final = 'Terlambat (P1)';
+                                        elseif ($diff <= 60) $st_final = 'Terlambat (P2)';
+                                        elseif ($diff <= 90) $st_final = 'Terlambat (P3)';
+                                        else $st_final = 'Terlambat (P4)';
                                     } else {
                                         $st_final = 'Hadir';
                                     }
@@ -3296,12 +3303,12 @@ class Rekap extends BaseController
                             }
 
                             $lbl_m = strtolower($st_final);
-                            if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false) $status_color = 'bg-st-istimewa';
+                            if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false || strpos($lbl_m, 'tepat waktu') !== false) $status_color = 'bg-st-istimewa';
+                            elseif (strpos($lbl_m, 'p1') !== false || $lbl_m == 'cukup baik' || $lbl_m == 'cukup') $status_color = 'bg-st-cukup';
+                            elseif (strpos($lbl_m, 'p2') !== false || $lbl_m == 'terlambat') $status_color = 'bg-st-telat';
+                            elseif (strpos($lbl_m, 'p3') !== false || strpos($lbl_m, 'pembinaan') !== false) $status_color = 'bg-st-bina';
+                            elseif (strpos($lbl_m, 'p4') !== false || strpos($lbl_m, 'teguran') !== false) $status_color = 'bg-st-teguran';
                             elseif ($lbl_m == 'baik') $status_color = 'bg-st-baik';
-                            elseif (strpos($lbl_m, 'cukup') !== false) $status_color = 'bg-st-cukup';
-                            elseif (strpos($lbl_m, 'terlambat') !== false) $status_color = 'bg-st-telat';
-                            elseif (strpos($lbl_m, 'pembinaan') !== false) $status_color = 'bg-st-bina';
-                            elseif (strpos($lbl_m, 'teguran') !== false) $status_color = 'bg-st-teguran';
                             elseif (strpos($lbl_m, 'apel') !== false) $status_color = 'bg-st-apel';
                             elseif (strpos($lbl_m, 'standby') !== false) $status_color = 'bg-info text-dark border-info';
                             else $status_color = 'bg-st-baik';
@@ -3445,17 +3452,17 @@ class Rekap extends BaseController
         // Tentukan warna baru berdasarkan status
         $new_color = 'bg-st-baik'; // default
         $lbl_m = strtolower($status_baru);
-        if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false) $new_color = 'bg-st-istimewa';
+        if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false || strpos($lbl_m, 'tepat waktu') !== false) $new_color = 'bg-st-istimewa';
+        elseif (strpos($lbl_m, 'p1') !== false || $lbl_m == 'cukup baik' || $lbl_m == 'cukup') $new_color = 'bg-st-cukup';
+        elseif (strpos($lbl_m, 'p2') !== false || $lbl_m == 'terlambat') $new_color = 'bg-st-telat';
+        elseif (strpos($lbl_m, 'p3') !== false || strpos($lbl_m, 'pembinaan') !== false) $new_color = 'bg-st-bina';
+        elseif (strpos($lbl_m, 'p4') !== false || strpos($lbl_m, 'teguran') !== false) $new_color = 'bg-st-teguran';
         elseif ($lbl_m == 'baik') $new_color = 'bg-st-baik';
-        elseif (strpos($lbl_m, 'cukup') !== false) $new_color = 'bg-st-cukup';
-        elseif (strpos($lbl_m, 'terlambat') !== false) $new_color = 'bg-st-telat';
-        elseif (strpos($lbl_m, 'pembinaan') !== false) $new_color = 'bg-st-bina';
-        elseif (strpos($lbl_m, 'teguran') !== false) $new_color = 'bg-st-teguran';
         elseif (strpos($lbl_m, 'alpa') !== false) $new_color = 'bg-alpa';
 
         // Rekalkulasi menit keterlambatan
         $menit_keterlambatan = 0;
-        if (in_array($new_color, ['bg-st-telat', 'bg-st-bina', 'bg-st-teguran'])) {
+        if (in_array($new_color, ['bg-st-cukup', 'bg-st-telat', 'bg-st-bina', 'bg-st-teguran'])) {
             if (!empty($jam_baru)) {
                 $jam_seharusnya = ($presensi && !empty($presensi->jam_masuk_seharusnya)) ? $presensi->jam_masuk_seharusnya : '07:30:00';
                 $diff = strtotime($jam_baru . ':00') - strtotime($jam_seharusnya);
@@ -3578,12 +3585,12 @@ class Rekap extends BaseController
         // Tentukan warna baru berdasarkan status
         $new_color = 'bg-st-baik'; // default
         $lbl_m = strtolower($status_baru);
-        if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false) $new_color = 'bg-st-istimewa';
+        if (strpos($lbl_m, 'istimewa') !== false || strpos($lbl_m, 'sangat baik') !== false || strpos($lbl_m, 'tepat waktu') !== false) $new_color = 'bg-st-istimewa';
+        elseif (strpos($lbl_m, 'p1') !== false || $lbl_m == 'cukup baik' || $lbl_m == 'cukup') $new_color = 'bg-st-cukup';
+        elseif (strpos($lbl_m, 'p2') !== false || $lbl_m == 'terlambat') $new_color = 'bg-st-telat';
+        elseif (strpos($lbl_m, 'p3') !== false || strpos($lbl_m, 'pembinaan') !== false) $new_color = 'bg-st-bina';
+        elseif (strpos($lbl_m, 'p4') !== false || strpos($lbl_m, 'teguran') !== false) $new_color = 'bg-st-teguran';
         elseif ($lbl_m == 'baik') $new_color = 'bg-st-baik';
-        elseif (strpos($lbl_m, 'cukup') !== false) $new_color = 'bg-st-cukup';
-        elseif (strpos($lbl_m, 'terlambat') !== false) $new_color = 'bg-st-telat';
-        elseif (strpos($lbl_m, 'pembinaan') !== false) $new_color = 'bg-st-bina';
-        elseif (strpos($lbl_m, 'teguran') !== false) $new_color = 'bg-st-teguran';
         elseif (strpos($lbl_m, 'alpa') !== false) $new_color = 'bg-alpa';
 
         $success_count = 0;
@@ -3594,7 +3601,7 @@ class Rekap extends BaseController
             $tanggal = $item->tanggal;
 
             $menit_keterlambatan = 0;
-            if (in_array($new_color, ['bg-st-telat', 'bg-st-bina', 'bg-st-teguran'])) {
+            if (in_array($new_color, ['bg-st-cukup', 'bg-st-telat', 'bg-st-bina', 'bg-st-teguran'])) {
                 if (!empty($jam_baru)) {
                     $diff = strtotime($jam_baru . ':00') - strtotime('07:30:00');
                     $menit_keterlambatan = max(0, floor($diff / 60));

@@ -249,12 +249,12 @@
                                 if ($is_cuti)  $row_style = 'background-color: #f0f7ff;';
 
                                 $cls_m = 'bg-st-default';
-                                if (strpos($st_lower, 'istimewa') !== false || $st_lower == 'sangat baik') $cls_m = 'bg-st-istimewa';
+                                if (strpos($st_lower, 'istimewa') !== false || strpos($st_lower, 'sangat baik') !== false || strpos($st_lower, 'tepat waktu') !== false) $cls_m = 'bg-st-istimewa';
+                                elseif (strpos($st_lower, 'p1') !== false || strpos($st_lower, 'cukup') !== false) $cls_m = 'bg-st-cukup';
+                                elseif (strpos($st_lower, 'p2') !== false || strpos($st_lower, 'terlambat') !== false) $cls_m = 'bg-st-telat';
+                                elseif (strpos($st_lower, 'p3') !== false || strpos($st_lower, 'pembinaan') !== false) $cls_m = 'bg-st-bina';
+                                elseif (strpos($st_lower, 'p4') !== false || strpos($st_lower, 'teguran') !== false) $cls_m = 'bg-st-teguran';
                                 elseif ($st_lower == 'baik') $cls_m = 'bg-st-baik';
-                                elseif (strpos($st_lower, 'cukup') !== false) $cls_m = 'bg-st-cukup';
-                                elseif (strpos($st_lower, 'terlambat') !== false) $cls_m = 'bg-st-telat';
-                                elseif (strpos($st_lower, 'pembinaan') !== false) $cls_m = 'bg-st-bina';
-                                elseif (strpos($st_lower, 'teguran') !== false) $cls_m = 'bg-st-teguran';
                                 elseif (strpos($st_lower, 'apel') !== false) $cls_m = 'bg-st-apel';
                                 elseif (strpos($st_lower, 'izin') !== false || strpos($st_lower, 'sakit') !== false || strpos($st_lower, 'luar') !== false) $cls_m = 'bg-st-izin';
                                 elseif (strpos($st_lower, 'standby') !== false) $cls_m = 'bg-st-standby border border-info'; // WARNA BARU CITO/STANDBY
@@ -263,8 +263,8 @@
 
                                 $lbl_p = strtolower($h['status_pulang_label'] ?? '');
                                 $cls_p = 'bg-st-default';
-                                if ($lbl_p == 'cepat pulang') $cls_p = 'bg-st-cepul';
-                                elseif ($lbl_p == 'selesai') $cls_p = 'bg-st-selesai';
+                                if (strpos($lbl_p, 'cepat') !== false || strpos($lbl_p, 'p1') !== false || strpos($lbl_p, 'p2') !== false || strpos($lbl_p, 'p3') !== false || strpos($lbl_p, 'p4') !== false) $cls_p = 'bg-st-cepul';
+                                elseif (strpos($lbl_p, 'selesai') !== false) $cls_p = 'bg-st-selesai';
                                 ?>
                                 <tr style="<?= $row_style ?>">
                                     <td class="text-start ps-2 fw-bold">

@@ -1383,11 +1383,15 @@ class Pwa extends BaseController
                         } else {
                             $status_m = 'Sangat Baik / Istimewa';
                         }
-                    } elseif ($menit_keterlambatan <= $batas_baik) $status_m = 'Baik';
-                    elseif ($menit_keterlambatan <= $batas_cukup) $status_m = 'Cukup Baik';
-                    elseif ($menit_keterlambatan <= $batas_telat) $status_m = 'Terlambat';
-                    elseif ($menit_keterlambatan <= $batas_bina) $status_m = 'Pembinaan';
-                    else $status_m = 'Teguran';
+                    } elseif ($menit_keterlambatan <= 30) {
+                        $status_m = 'Terlambat (P1)';
+                    } elseif ($menit_keterlambatan <= 60) {
+                        $status_m = 'Terlambat (P2)';
+                    } elseif ($menit_keterlambatan <= 90) {
+                        $status_m = 'Terlambat (P3)';
+                    } else {
+                        $status_m = 'Terlambat (P4)';
+                    }
                 }
 
                 $this->db->table('presensi')->insert([
@@ -1432,16 +1436,21 @@ class Pwa extends BaseController
                     $jam_pulang_seharusnya = $cek['jam_pulang_seharusnya'];
                     $status_p = 'Selesai';
                     if (!empty($jam_pulang_seharusnya) && (strtotime($jam_sekarang) < strtotime($jam_pulang_seharusnya))) {
-                        $status_p = 'Cepat Pulang';
+                        $menit_pc = ceil((strtotime($jam_pulang_seharusnya) - strtotime($jam_sekarang)) / 60);
+                        if ($menit_pc <= 30) $status_p = 'Pulang Cepat (P1)';
+                        elseif ($menit_pc <= 60) $status_p = 'Pulang Cepat (P2)';
+                        elseif ($menit_pc <= 90) $status_p = 'Pulang Cepat (P3)';
+                        else $status_p = 'Pulang Cepat (P4)';
                     }
                     if ($is_jadwal_cito) $status_p = 'Selesai';
 
-                    if ($status_p == 'Cepat Pulang' && (empty($confirm_pulang) || $confirm_pulang != '1')) {
+                    $is_pulang_cepat = (strpos($status_p, 'Pulang Cepat') !== false || $status_p === 'Cepat Pulang');
+                    if ($is_pulang_cepat && (empty($confirm_pulang) || $confirm_pulang != '1')) {
                         $this->db->transRollback();
                         cache()->delete("lock_absen_$id_pegawai");
                         return $this->response->setJSON([
                             'status' => 'confirm_pulang_cepat',
-                            'message' => 'Jam kerja Anda belum selesai (Jadwal pulang: ' . date('H:i', strtotime($jam_pulang_seharusnya)) . ' WITA).<br><br>Apakah Anda yakin ingin <b>Pulang Cepat</b> sekarang?'
+                            'message' => 'Jam kerja Anda belum selesai (Jadwal pulang: ' . date('H:i', strtotime($jam_pulang_seharusnya)) . ' WITA).<br><br>Apakah Anda yakin ingin <b>' . $status_p . '</b> sekarang?'
                         ]);
                     }
 
@@ -1475,15 +1484,24 @@ class Pwa extends BaseController
                             $batas_mulai_pulang = ($jam_pulang_target <= '13:30:00') ? date('H:i:s', strtotime('-120 minutes', strtotime($jam_pulang_target))) : '13:30:01';
 
                             if ($jam_sekarang >= $batas_mulai_pulang) {
-                                $status_p = (strtotime($jam_sekarang) < strtotime($jam_pulang_target)) ? 'Cepat Pulang' : 'Selesai';
+                                if (strtotime($jam_sekarang) < strtotime($jam_pulang_target)) {
+                                    $menit_pc = ceil((strtotime($jam_pulang_target) - strtotime($jam_sekarang)) / 60);
+                                    if ($menit_pc <= 30) $status_p = 'Pulang Cepat (P1)';
+                                    elseif ($menit_pc <= 60) $status_p = 'Pulang Cepat (P2)';
+                                    elseif ($menit_pc <= 90) $status_p = 'Pulang Cepat (P3)';
+                                    else $status_p = 'Pulang Cepat (P4)';
+                                } else {
+                                    $status_p = 'Selesai';
+                                }
                                 if ($is_jadwal_cito) $status_p = 'Selesai';
 
-                                if ($status_p == 'Cepat Pulang' && (empty($confirm_pulang) || $confirm_pulang != '1')) {
+                                $is_pulang_cepat = (strpos($status_p, 'Pulang Cepat') !== false || $status_p === 'Cepat Pulang');
+                                if ($is_pulang_cepat && (empty($confirm_pulang) || $confirm_pulang != '1')) {
                                     $this->db->transRollback();
                                     cache()->delete("lock_absen_$id_pegawai");
                                     return $this->response->setJSON([
                                         'status' => 'confirm_pulang_cepat',
-                                        'message' => 'Jam kerja Anda belum selesai (Jadwal pulang: ' . date('H:i', strtotime($jam_pulang_target)) . ' WITA).<br><br>Apakah Anda yakin ingin <b>Pulang Cepat</b> sekarang?'
+                                        'message' => 'Jam kerja Anda belum selesai (Jadwal pulang: ' . date('H:i', strtotime($jam_pulang_target)) . ' WITA).<br><br>Apakah Anda yakin ingin <b>' . $status_p . '</b> sekarang?'
                                     ]);
                                 }
 
@@ -1546,15 +1564,24 @@ class Pwa extends BaseController
                         // LOGIKA NAKES SHIFT
                         if (empty($cek['jam_pulang_aktual'])) {
 
-                            $status_p = (strtotime($jam_sekarang) < strtotime($jam_pulang_target)) ? 'Cepat Pulang' : 'Selesai';
+                            if (strtotime($jam_sekarang) < strtotime($jam_pulang_target)) {
+                                $menit_pc = ceil((strtotime($jam_pulang_target) - strtotime($jam_sekarang)) / 60);
+                                if ($menit_pc <= 30) $status_p = 'Pulang Cepat (P1)';
+                                elseif ($menit_pc <= 60) $status_p = 'Pulang Cepat (P2)';
+                                elseif ($menit_pc <= 90) $status_p = 'Pulang Cepat (P3)';
+                                else $status_p = 'Pulang Cepat (P4)';
+                            } else {
+                                $status_p = 'Selesai';
+                            }
                             if ($is_jadwal_cito) $status_p = 'Selesai';
 
-                            if ($status_p == 'Cepat Pulang' && (empty($confirm_pulang) || $confirm_pulang != '1')) {
+                            $is_pulang_cepat = (strpos($status_p, 'Pulang Cepat') !== false || $status_p === 'Cepat Pulang');
+                            if ($is_pulang_cepat && (empty($confirm_pulang) || $confirm_pulang != '1')) {
                                 $this->db->transRollback();
                                 cache()->delete("lock_absen_$id_pegawai");
                                 return $this->response->setJSON([
                                     'status' => 'confirm_pulang_cepat',
-                                    'message' => 'Jam kerja Anda belum selesai (Jadwal pulang: ' . date('H:i', strtotime($jam_pulang_target)) . ' WITA).<br><br>Apakah Anda yakin ingin <b>Pulang Cepat</b> sekarang?'
+                                    'message' => 'Jam kerja Anda belum selesai (Jadwal pulang: ' . date('H:i', strtotime($jam_pulang_target)) . ' WITA).<br><br>Apakah Anda yakin ingin <b>' . $status_p . '</b> sekarang?'
                                 ]);
                             }
 

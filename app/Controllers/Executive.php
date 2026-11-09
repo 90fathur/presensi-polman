@@ -50,7 +50,7 @@ class Executive extends BaseController
 
         $global_stats = $builder->select("
                 COUNT(pr.id_presensi) as total_absen,
-                SUM(CASE WHEN pr.status_masuk = 'Terlambat' THEN 1 ELSE 0 END) as total_telat,
+                SUM(CASE WHEN (pr.status_masuk LIKE '%Terlambat%' OR pr.status_masuk IN ('Pembinaan', 'Teguran')) THEN 1 ELSE 0 END) as total_telat,
                 SUM(CASE WHEN pr.jam_masuk_aktual IS NOT NULL AND pr.jam_masuk_aktual != '00:00:00' THEN 1 ELSE 0 END) as total_hadir,
                 SUM(CASE WHEN pr.kategori LIKE '%Izin%' OR pr.kategori LIKE '%Sakit%' OR pr.kategori LIKE '%Cuti%' OR pr.kategori LIKE '%Luar%' THEN 1 ELSE 0 END) as total_izin
             ", false)->get()->getRow();
@@ -62,7 +62,7 @@ class Executive extends BaseController
             ->select("
                 o.nama_opd,
                 COUNT(pr.id_presensi) as total_absen,
-                SUM(CASE WHEN pr.status_masuk = 'Terlambat' THEN 1 ELSE 0 END) as total_telat,
+                SUM(CASE WHEN (pr.status_masuk LIKE '%Terlambat%' OR pr.status_masuk IN ('Pembinaan', 'Teguran')) THEN 1 ELSE 0 END) as total_telat,
                 SUM(CASE WHEN pr.jam_masuk_aktual IS NOT NULL AND pr.jam_masuk_aktual != '00:00:00' THEN 1 ELSE 0 END) as total_hadir
             ", false)
             ->join('pegawai p', 'pr.nip = p.nip')
@@ -164,7 +164,7 @@ class Executive extends BaseController
                 ->select("
                     DAY(tanggal) as hari,
                     SUM(CASE WHEN jam_masuk_aktual IS NOT NULL AND jam_masuk_aktual != '00:00:00' THEN 1 ELSE 0 END) as total_hadir,
-                    SUM(CASE WHEN status_masuk = 'Terlambat' THEN 1 ELSE 0 END) as total_telat
+                    SUM(CASE WHEN (status_masuk LIKE '%Terlambat%' OR status_masuk IN ('Pembinaan', 'Teguran')) THEN 1 ELSE 0 END) as total_telat
                 ", false)
                 ->where('MONTH(tanggal)', $bulan)
                 ->where('YEAR(tanggal)', $tahun)
@@ -192,7 +192,7 @@ class Executive extends BaseController
             ->select("
                 p.nama_lengkap, o.nama_opd,
                 SUM(CASE WHEN pr.status_masuk LIKE '%Hadir%' OR pr.status_masuk LIKE '%Istimewa%' OR pr.status_masuk LIKE '%Baik%' OR pr.status_masuk LIKE '%Tepat Waktu%' THEN 1 ELSE 0 END) as hadir_tepat_waktu,
-                SUM(CASE WHEN pr.status_masuk = 'Terlambat' THEN 1 ELSE 0 END) as total_telat,
+                SUM(CASE WHEN (pr.status_masuk LIKE '%Terlambat%' OR pr.status_masuk IN ('Pembinaan', 'Teguran')) THEN 1 ELSE 0 END) as total_telat,
                 (
                     (SUM(CASE WHEN pr.status_masuk LIKE '%Hadir%' OR pr.status_masuk LIKE '%Istimewa%' OR pr.status_masuk LIKE '%Baik%' OR pr.status_masuk LIKE '%Tepat Waktu%' THEN 1 ELSE 0 END) * 3) + 
                     (SUM(CASE WHEN pr.status_masuk = 'Terlambat' THEN 1 ELSE 0 END) * 1)
