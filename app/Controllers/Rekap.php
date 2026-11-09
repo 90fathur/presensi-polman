@@ -1301,6 +1301,55 @@ class Rekap extends BaseController
                 ->orderBy('p.nama_lengkap', 'ASC')
                 ->get()->getResultArray();
 
+            // ==============================================================
+            // [SMART OVERRIDE]: FILTER MUTASI PEGAWAI (EXCLUDE / INCLUDE)
+            // ==============================================================
+            $this->check_override_table();
+            $override_rows = $db->table('tpp_rekap_override')
+                ->where('id_opd', $id_opd)
+                ->where('bulan', $bulan)
+                ->where('tahun', $tahun)
+                ->get()->getResultArray();
+
+            $excluded_ids = [];
+            $included_ids = [];
+            foreach ($override_rows as $ov) {
+                if ($ov['tipe'] === 'exclude') $excluded_ids[] = (int)$ov['id_pegawai'];
+                if ($ov['tipe'] === 'include') $included_ids[] = (int)$ov['id_pegawai'];
+            }
+
+            if (!empty($excluded_ids)) {
+                $pegawai = array_values(array_filter($pegawai, function($p) use ($excluded_ids) {
+                    return !in_array((int)$p['id_pegawai'], $excluded_ids);
+                }));
+            }
+
+            if (!empty($included_ids)) {
+                $builder_tambahan = $db->table('pegawai p')
+                    ->select('p.*, o.nama_opd, o.id_jam_kerja as id_jam_opd')
+                    ->join('opd o', 'p.id_opd = o.id_opd', 'left')
+                    ->whereIn('p.id_pegawai', $included_ids);
+                if (!empty($status_asn)) {
+                    $builder_tambahan->where('p.status_asn', $status_asn);
+                }
+                $extra_rows = $builder_tambahan->get()->getResultArray();
+                $existing_ids = array_column($pegawai, 'id_pegawai');
+                foreach ($extra_rows as $er) {
+                    if (!in_array($er['id_pegawai'], $existing_ids)) {
+                        $er['is_override_include'] = true;
+                        $pegawai[] = $er;
+                    }
+                }
+
+                usort($pegawai, function($a, $b) {
+                    $order = ['II.a' => 1, 'II.b' => 2, 'III.a' => 3, 'III.b' => 4, 'IV.a' => 5, 'IV.b' => 6];
+                    $rankA = $order[trim($a['eselon'] ?? '')] ?? (stripos($a['level_jabatan'] ?? '', 'Fungsional') !== false ? 7 : 8);
+                    $rankB = $order[trim($b['eselon'] ?? '')] ?? (stripos($b['level_jabatan'] ?? '', 'Fungsional') !== false ? 7 : 8);
+                    if ($rankA !== $rankB) return $rankA <=> $rankB;
+                    return strcmp($a['nama_lengkap'] ?? '', $b['nama_lengkap'] ?? '');
+                });
+            }
+
             $jml_hari_bulan_ini = date('t', strtotime("$tahun-$bulan-01"));
 
             $ids_pegawai = array_column($pegawai, 'id_pegawai');
@@ -1485,6 +1534,8 @@ class Rekap extends BaseController
                 $parsed_pg = \App\Helpers\AsnHelper::parse_pangkat_golongan($pgw['pangkat'] ?? '', $pgw['golongan'] ?? '');
 
                 $res = [
+                    'id_pegawai' => $pgw['id_pegawai'],
+                    'is_override_include' => !empty($pgw['is_override_include']),
                     'nama' => $pgw['nama_lengkap'],
                     'nip' => $pgw['nip'],
                     'jab' => $pgw['jabatan'],
@@ -1676,6 +1727,23 @@ class Rekap extends BaseController
                 $data_pegawai[] = $res;
             }
 
+            // Ambil detail info excluded dan included pegawai untuk banner dan modal kelola
+            $excluded_pegawai_info = [];
+            if (!empty($excluded_ids)) {
+                $excluded_pegawai_info = $db->table('pegawai')
+                    ->select('id_pegawai, nip, nama_lengkap, jabatan')
+                    ->whereIn('id_pegawai', $excluded_ids)
+                    ->get()->getResultArray();
+            }
+
+            $included_pegawai_info = [];
+            if (!empty($included_ids)) {
+                $included_pegawai_info = $db->table('pegawai')
+                    ->select('id_pegawai, nip, nama_lengkap, jabatan')
+                    ->whereIn('id_pegawai', $included_ids)
+                    ->get()->getResultArray();
+            }
+
             return view('admin/rekap_tpp', [
                 'pegawai'             => $data_pegawai,
                 'list_opd'            => $list_opd,
@@ -1687,7 +1755,9 @@ class Rekap extends BaseController
                 'nama_opd'            => $nama_opd,
                 'is_induk_opd'        => $is_induk_opd,
                 'child_opds'          => $child_opds,
-                'admin_opd_name'      => $admin_opd_name
+                'admin_opd_name'      => $admin_opd_name,
+                'excluded_pegawai'    => $excluded_pegawai_info,
+                'included_pegawai'    => $included_pegawai_info
             ]);
         }
 
@@ -1702,7 +1772,9 @@ class Rekap extends BaseController
             'nama_opd'            => $nama_opd,
             'is_induk_opd'        => $is_induk_opd ?? false,
             'child_opds'          => $child_opds ?? [],
-            'admin_opd_name'      => $admin_opd_name ?? ''
+            'admin_opd_name'      => $admin_opd_name ?? '',
+            'excluded_pegawai'    => [],
+            'included_pegawai'    => []
         ]);
     }
 
@@ -1883,6 +1955,55 @@ class Rekap extends BaseController
                 ELSE 9 END", "ASC", false)
             ->orderBy('p.nama_lengkap', 'ASC')
             ->get()->getResultArray();
+
+        // ==============================================================
+        // [SMART OVERRIDE]: FILTER MUTASI PEGAWAI PADA EXCEL
+        // ==============================================================
+        $this->check_override_table();
+        $override_rows = $db->table('tpp_rekap_override')
+            ->where('id_opd', $id_opd)
+            ->where('bulan', $bulan)
+            ->where('tahun', $tahun)
+            ->get()->getResultArray();
+
+        $excluded_ids = [];
+        $included_ids = [];
+        foreach ($override_rows as $ov) {
+            if ($ov['tipe'] === 'exclude') $excluded_ids[] = (int)$ov['id_pegawai'];
+            if ($ov['tipe'] === 'include') $included_ids[] = (int)$ov['id_pegawai'];
+        }
+
+        if (!empty($excluded_ids)) {
+            $pegawai = array_values(array_filter($pegawai, function($p) use ($excluded_ids) {
+                return !in_array((int)$p['id_pegawai'], $excluded_ids);
+            }));
+        }
+
+        if (!empty($included_ids)) {
+            $builder_tambahan = $db->table('pegawai p')
+                ->select('p.*, o.nama_opd, o.id_jam_kerja as id_jam_opd')
+                ->join('opd o', 'p.id_opd = o.id_opd', 'left')
+                ->whereIn('p.id_pegawai', $included_ids);
+            if (!empty($status_asn)) {
+                $builder_tambahan->where('p.status_asn', $status_asn);
+            }
+            $extra_rows = $builder_tambahan->get()->getResultArray();
+            $existing_ids = array_column($pegawai, 'id_pegawai');
+            foreach ($extra_rows as $er) {
+                if (!in_array($er['id_pegawai'], $existing_ids)) {
+                    $er['is_override_include'] = true;
+                    $pegawai[] = $er;
+                }
+            }
+
+            usort($pegawai, function($a, $b) {
+                $order = ['II.a' => 1, 'II.b' => 2, 'III.a' => 3, 'III.b' => 4, 'IV.a' => 5, 'IV.b' => 6];
+                $rankA = $order[trim($a['eselon'] ?? '')] ?? 7;
+                $rankB = $order[trim($b['eselon'] ?? '')] ?? 7;
+                if ($rankA !== $rankB) return $rankA <=> $rankB;
+                return strcmp($a['nama_lengkap'] ?? '', $b['nama_lengkap'] ?? '');
+            });
+        }
 
         $jml_hari_bulan_ini = date('t', strtotime("$tahun-$bulan-01"));
         $ids_pegawai = array_column($pegawai, 'id_pegawai');
@@ -3560,5 +3681,195 @@ class Rekap extends BaseController
             'message' => $success_count . ' data kehadiran berhasil dikoreksi.',
             'new_color' => $new_color
         ]);
+    }
+
+    // =========================================================================
+    // FITUR SMART OVERRIDE REKAP TPP (PENYESUAIAN MUTASI PEGAWAI)
+    // =========================================================================
+
+    private function check_override_table()
+    {
+        $db = \Config\Database::connect();
+        $db->query("CREATE TABLE IF NOT EXISTS `tpp_rekap_override` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `id_opd` VARCHAR(50) NOT NULL,
+            `bulan` INT(11) NOT NULL,
+            `tahun` INT(11) NOT NULL,
+            `id_pegawai` INT(11) NOT NULL,
+            `tipe` ENUM('exclude', 'include') NOT NULL,
+            `keterangan` VARCHAR(255) NULL,
+            `created_by` VARCHAR(100) NULL,
+            `created_at` DATETIME NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uk_override` (`id_opd`, `bulan`, `tahun`, `id_pegawai`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `riwayat_penempatan` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `id_pegawai` VARCHAR(50) NOT NULL,
+            `id_opd` VARCHAR(50) NOT NULL,
+            `tmt_mulai` DATE NOT NULL,
+            `tmt_selesai` DATE DEFAULT NULL,
+            `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_pegawai` (`id_pegawai`),
+            KEY `idx_opd` (`id_opd`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+    }
+
+    public function ajax_cari_pegawai_mutasi()
+    {
+        $db = \Config\Database::connect();
+        $q = trim($this->request->getGet('q') ?? '');
+        $id_opd = $this->request->getGet('id_opd');
+
+        if (strlen($q) < 2) {
+            return $this->response->setJSON(['status' => 'success', 'data' => []]);
+        }
+
+        $builder = $db->table('pegawai p')
+            ->select('p.id_pegawai, p.nip, p.nama_lengkap, p.jabatan, p.pangkat, p.golongan, p.eselon, o.nama_opd')
+            ->join('opd o', 'p.id_opd = o.id_opd', 'left')
+            ->groupStart()
+                ->like('p.nama_lengkap', $q)
+                ->orLike('p.nip', $q)
+            ->groupEnd();
+
+        if (!empty($id_opd) && is_numeric($id_opd)) {
+            $builder->where('p.id_opd !=', $id_opd);
+        }
+
+        $results = $builder->limit(20)->get()->getResultArray();
+
+        return $this->response->setJSON(['status' => 'success', 'data' => $results]);
+    }
+
+    public function ajax_override_save()
+    {
+        $session = session();
+        if (!$session->get('is_logged_in') && !$session->get('logged_in')) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Sesi login telah berakhir.']);
+        }
+
+        $this->check_override_table();
+        $db = \Config\Database::connect();
+
+        $id_opd     = $this->request->getPost('id_opd');
+        $bulan      = (int)$this->request->getPost('bulan');
+        $tahun      = (int)$this->request->getPost('tahun');
+        $id_pegawai = (int)$this->request->getPost('id_pegawai');
+        $tipe       = $this->request->getPost('tipe'); // 'exclude' atau 'include'
+        $keterangan = trim($this->request->getPost('keterangan') ?? '');
+
+        if (!$id_opd || !$bulan || !$tahun || !$id_pegawai || !in_array($tipe, ['exclude', 'include'])) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Parameter tidak valid.']);
+        }
+
+        $level = $session->get('level');
+        $id_opd_session = $session->get('id_opd');
+        if (!in_array($level, ['Superadmin', 'kabupaten']) && $id_opd != $id_opd_session) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Anda tidak memiliki hak akses untuk OPD ini.']);
+        }
+
+        $existing = $db->table('tpp_rekap_override')
+            ->where([
+                'id_opd'     => $id_opd,
+                'bulan'      => $bulan,
+                'tahun'      => $tahun,
+                'id_pegawai' => $id_pegawai
+            ])->get()->getRow();
+
+        $data = [
+            'id_opd'     => $id_opd,
+            'bulan'      => $bulan,
+            'tahun'      => $tahun,
+            'id_pegawai' => $id_pegawai,
+            'tipe'       => $tipe,
+            'keterangan' => $keterangan ?: ($tipe === 'exclude' ? 'Dikeluarkan dari rekap (pejabat baru mutasi)' : 'Ditarik masuk ke rekap (pejabat lama)'),
+            'created_by' => $session->get('nama') ?? $session->get('username') ?? 'Admin',
+            'created_at' => date('Y-m-d H:i:s')
+        ];
+
+        if ($existing) {
+            $db->table('tpp_rekap_override')->where('id', $existing->id)->update($data);
+        } else {
+            $db->table('tpp_rekap_override')->insert($data);
+        }
+
+        $msg = ($tipe === 'exclude') 
+            ? 'Pegawai berhasil dikeluarkan dari rekap bulan ini.' 
+            : 'Pegawai berhasil ditarik masuk ke rekap bulan ini.';
+
+        return $this->response->setJSON(['status' => 'success', 'message' => $msg]);
+    }
+
+    public function ajax_override_delete()
+    {
+        $session = session();
+        if (!$session->get('is_logged_in') && !$session->get('logged_in')) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Sesi login telah berakhir.']);
+        }
+
+        $this->check_override_table();
+        $db = \Config\Database::connect();
+
+        $id_opd     = $this->request->getPost('id_opd');
+        $bulan      = (int)$this->request->getPost('bulan');
+        $tahun      = (int)$this->request->getPost('tahun');
+        $id_pegawai = (int)$this->request->getPost('id_pegawai');
+
+        if (!$id_opd || !$bulan || !$tahun || !$id_pegawai) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Parameter tidak valid.']);
+        }
+
+        $level = $session->get('level');
+        $id_opd_session = $session->get('id_opd');
+        if (!in_array($level, ['Superadmin', 'kabupaten']) && $id_opd != $id_opd_session) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Akses ditolak.']);
+        }
+
+        $db->table('tpp_rekap_override')
+            ->where([
+                'id_opd'     => $id_opd,
+                'bulan'      => $bulan,
+                'tahun'      => $tahun,
+                'id_pegawai' => $id_pegawai
+            ])->delete();
+
+        return $this->response->setJSON(['status' => 'success', 'message' => 'Penyesuaian pegawai berhasil dibatalkan.']);
+    }
+
+    public function ajax_override_reset()
+    {
+        $session = session();
+        if (!$session->get('is_logged_in') && !$session->get('logged_in')) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Sesi login telah berakhir.']);
+        }
+
+        $this->check_override_table();
+        $db = \Config\Database::connect();
+
+        $id_opd = $this->request->getPost('id_opd');
+        $bulan  = (int)$this->request->getPost('bulan');
+        $tahun  = (int)$this->request->getPost('tahun');
+
+        if (!$id_opd || !$bulan || !$tahun) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Parameter tidak valid.']);
+        }
+
+        $level = $session->get('level');
+        $id_opd_session = $session->get('id_opd');
+        if (!in_array($level, ['Superadmin', 'kabupaten']) && $id_opd != $id_opd_session) {
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Akses ditolak.']);
+        }
+
+        $db->table('tpp_rekap_override')
+            ->where([
+                'id_opd' => $id_opd,
+                'bulan'  => $bulan,
+                'tahun'  => $tahun
+            ])->delete();
+
+        return $this->response->setJSON(['status' => 'success', 'message' => 'Seluruh penyesuaian pegawai bulan ini berhasil direset ke default.']);
     }
 }

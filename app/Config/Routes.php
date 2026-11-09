@@ -61,6 +61,10 @@ $routes->group('', ['filter' => 'authFilter'], function ($routes) {
     $routes->get('keterlambatan', 'Rekap::keterlambatan');
     $routes->get('cetaktpp', 'Rekap::tpp');
     $routes->get('cetaktpp/excel', 'Rekap::excel');
+    $routes->post('cetaktpp/override_save', 'Rekap::ajax_override_save');
+    $routes->post('cetaktpp/override_delete', 'Rekap::ajax_override_delete');
+    $routes->post('cetaktpp/override_reset', 'Rekap::ajax_override_reset');
+    $routes->get('cetaktpp/cari_pegawai_mutasi', 'Rekap::ajax_cari_pegawai_mutasi');
     
     // --- FITUR BARU: PROTOTYPE REKAP TPP DINAMIS (BK & KK 40% - 60%) ---
     $routes->get('tpp_dinamis', 'TppDinamis::index');

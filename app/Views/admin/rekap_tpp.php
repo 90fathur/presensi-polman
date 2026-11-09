@@ -173,6 +173,31 @@
     </div>
 </div>
 
+<?php if (!empty($selected_opd) && !empty($pegawai)): ?>
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <?php 
+            $has_override = !empty($excluded_pegawai) || !empty($included_pegawai);
+            if ($has_override): 
+            ?>
+                <div class="alert alert-warning py-1 px-3 mb-0 d-inline-flex align-items-center gap-2 small rounded-pill border-0 shadow-xs">
+                    <i class="fas fa-exchange-alt text-warning"></i>
+                    <span><strong>Penyesuaian Mutasi:</strong> 
+                        <?= count($excluded_pegawai) ?> Dikeluarkan, <?= count($included_pegawai) ?> Ditarik Masuk
+                    </span>
+                    <button type="button" class="btn btn-xs btn-outline-dark rounded-pill py-0 px-2 ms-1 fw-bold" onclick="modalRincianOverride()">Rincian</button>
+                    <button type="button" class="btn btn-xs btn-outline-danger rounded-pill py-0 px-2 fw-bold" onclick="resetSemuaOverride()">Reset</button>
+                </div>
+            <?php endif; ?>
+        </div>
+        <div>
+            <button type="button" class="btn btn-warning btn-sm rounded-pill shadow-sm px-3 fw-bold" onclick="modalTarikPegawai()">
+                <i class="fas fa-user-plus me-1"></i> Tarik Pegawai Mutasi (Pejabat Lama)
+            </button>
+        </div>
+    </div>
+<?php endif; ?>
+
 <?php if (!empty($pegawai)): ?>
     <div class="card border-0 shadow-sm overflow-hidden">
         <div class="table-responsive">
@@ -180,7 +205,7 @@
                 <thead class="bg-light text-dark fw-bold">
                     <tr>
                         <th rowspan="3" style="vertical-align: middle;">NO</th>
-                        <th rowspan="3" style="vertical-align: middle;" width="180">NAMA</th>
+                        <th rowspan="3" style="vertical-align: middle;" width="200">NAMA</th>
                         <th rowspan="3" style="vertical-align: middle;" width="100">PANGKAT / GOL. RUANG</th>
                         <th rowspan="3" style="vertical-align: middle;" width="120">JABATAN</th>
                         <th rowspan="3" style="vertical-align: middle;" width="80">JUMLAH<br>HARI<br>KERJA</th>
@@ -250,8 +275,26 @@
                         <tr>
                             <td class="bg-light"><?= $no++ ?></td>
                             <td class="text-start ps-2">
-                                <span class="fw-bold d-block text-dark"><?= $p['nama'] ?></span>
-                                <span class="text-muted" style="font-size: 0.6rem;"><?= $p['nip'] ?></span>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <span class="fw-bold d-block text-dark"><?= $p['nama'] ?></span>
+                                        <span class="text-muted" style="font-size: 0.6rem;"><?= $p['nip'] ?></span>
+                                    </div>
+                                    <div class="btn-override-action ms-2 d-print-none">
+                                        <?php if (!empty($p['is_override_include'])): ?>
+                                            <span class="badge bg-warning text-dark border shadow-xs" style="font-size: 0.55rem;" title="Pegawai Ditarik Masuk (Pejabat Lama)">
+                                                <i class="fas fa-exchange-alt me-1"></i>Mutasi
+                                            </span>
+                                            <button type="button" class="btn btn-outline-danger btn-xs py-0 px-1 ms-1 rounded" title="Batal Tarik (Hapus dari Rekap Bulan Ini)" onclick="hapusOverride(<?= $p['id_pegawai'] ?>, '<?= esc($p['nama']) ?>')">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        <?php else: ?>
+                                            <button type="button" class="btn btn-outline-danger btn-xs py-0 px-1 rounded opacity-75" title="Keluarkan dari Rekap Bulan Ini (karena baru mutasi masuk)" onclick="excludePegawai(<?= $p['id_pegawai'] ?>, '<?= esc($p['nama']) ?>')">
+                                                <i class="fas fa-user-minus"></i>
+                                            </button>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
                             </td>
                             <td class="small">
                                 <?= esc($p['pangkat']) ?>
@@ -402,11 +445,313 @@
     </div>
 </div>
 
+<!-- MODAL TARIK PEGAWAI MUTASI (PEJABAT LAMA) -->
+<div class="modal fade" id="modalTarikPegawai" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-warning text-dark border-0">
+                <h6 class="modal-title fw-bold"><i class="fas fa-user-plus me-2"></i>Tarik Pegawai Mutasi (Pejabat Lama)</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <p class="small text-muted mb-3">
+                    Cari pejabat lama yang pada bulan <b><?= date('F', mktime(0, 0, 0, $bulan, 10)) ?> <?= $tahun ?></b> masih bertugas di OPD ini, tetapi sekarang sudah dimutasi/dipindahkan ke OPD lain.
+                </p>
+                <div class="mb-3">
+                    <label class="small fw-bold mb-1">Cari Nama atau NIP Pegawai</label>
+                    <div class="input-group input-group-sm">
+                        <input type="text" id="inputCariPegawai" class="form-control shadow-none" placeholder="Ketik nama atau NIP minimal 2 karakter..." onkeyup="handleSearchPegawai(event)">
+                        <button class="btn btn-dark" type="button" onclick="lakukanPencarianPegawai()"><i class="fas fa-search"></i> Cari</button>
+                    </div>
+                </div>
+                <div id="hasilPencarianPegawai" class="mt-3 border rounded p-2 bg-light" style="max-height: 280px; overflow-y: auto;">
+                    <div class="text-center text-muted small py-4">Ketik nama atau NIP lalu klik Cari...</div>
+                </div>
+            </div>
+            <div class="modal-footer border-0 bg-light">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Tutup</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL RINCIAN PENYESUAIAN PEGAWAI -->
+<div class="modal fade" id="modalRincianOverride" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-dark text-white border-0">
+                <h6 class="modal-title fw-bold"><i class="fas fa-list me-2"></i>Rincian Penyesuaian Pegawai (<?= date('F', mktime(0, 0, 0, $bulan, 10)) ?> <?= $tahun ?>)</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <h6 class="fw-bold small text-danger mb-2"><i class="fas fa-user-minus me-1"></i> Pejabat Baru yang Dikeluarkan (<?= count($excluded_pegawai ?? []) ?>):</h6>
+                <?php if (empty($excluded_pegawai)): ?>
+                    <p class="small text-muted fst-italic">Tidak ada pejabat yang dikeluarkan.</p>
+                <?php else: ?>
+                    <ul class="list-group list-group-flush mb-3 small border rounded">
+                        <?php foreach ($excluded_pegawai as $ep): ?>
+                            <li class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
+                                <div>
+                                    <strong class="text-dark"><?= esc($ep['nama_lengkap']) ?></strong><br>
+                                    <span class="text-muted" style="font-size: 0.7rem;">NIP. <?= esc($ep['nip']) ?> | <?= esc($ep['jabatan']) ?></span>
+                                </div>
+                                <button type="button" class="btn btn-xs btn-outline-success rounded-pill px-3 fw-bold" onclick="hapusOverride(<?= $ep['id_pegawai'] ?>, '<?= esc($ep['nama_lengkap']) ?>')">
+                                    <i class="fas fa-undo me-1"></i> Kembalikan
+                                </button>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+
+                <hr>
+
+                <h6 class="fw-bold small text-success mb-2"><i class="fas fa-user-plus me-1"></i> Pejabat Lama yang Ditarik Masuk (<?= count($included_pegawai ?? []) ?>):</h6>
+                <?php if (empty($included_pegawai)): ?>
+                    <p class="small text-muted fst-italic">Tidak ada pejabat lama yang ditarik masuk.</p>
+                <?php else: ?>
+                    <ul class="list-group list-group-flush small border rounded">
+                        <?php foreach ($included_pegawai as $ip): ?>
+                            <li class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
+                                <div>
+                                    <strong class="text-dark"><?= esc($ip['nama_lengkap']) ?></strong><br>
+                                    <span class="text-muted" style="font-size: 0.7rem;">NIP. <?= esc($ip['nip']) ?> | <?= esc($ip['jabatan']) ?></span>
+                                </div>
+                                <button type="button" class="btn btn-xs btn-outline-danger rounded-pill px-3 fw-bold" onclick="hapusOverride(<?= $ip['id_pegawai'] ?>, '<?= esc($ip['nama_lengkap']) ?>')">
+                                    <i class="fas fa-times me-1"></i> Batal Tarik
+                                </button>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+            </div>
+            <div class="modal-footer border-0 bg-light">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Tutup</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <script>
+    const currentOpd = '<?= $selected_opd ?>';
+    const currentBulan = '<?= $bulan ?>';
+    const currentTahun = '<?= $tahun ?>';
+
+    function modalTarikPegawai() {
+        const modalEl = document.getElementById('modalTarikPegawai');
+        const modal = new bootstrap.Modal(modalEl);
+        document.getElementById('inputCariPegawai').value = '';
+        document.getElementById('hasilPencarianPegawai').innerHTML = '<div class="text-center text-muted small py-4">Ketik nama atau NIP lalu klik Cari...</div>';
+        modal.show();
+    }
+
+    function modalRincianOverride() {
+        const modalEl = document.getElementById('modalRincianOverride');
+        const modal = new bootstrap.Modal(modalEl);
+        modal.show();
+    }
+
+    let searchTimer;
+    function handleSearchPegawai(e) {
+        if (e.key === 'Enter') {
+            lakukanPencarianPegawai();
+            return;
+        }
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+            lakukanPencarianPegawai();
+        }, 400);
+    }
+
+    function lakukanPencarianPegawai() {
+        const q = document.getElementById('inputCariPegawai').value.trim();
+        const container = document.getElementById('hasilPencarianPegawai');
+        if (q.length < 2) {
+            container.innerHTML = '<div class="text-center text-muted small py-4">Ketik minimal 2 karakter nama atau NIP...</div>';
+            return;
+        }
+        container.innerHTML = '<div class="text-center text-muted small py-4"><i class="fas fa-spinner fa-spin me-1"></i> Mencari pegawai...</div>';
+        
+        fetch('<?= base_url('cetaktpp/cari_pegawai_mutasi') ?>?q=' + encodeURIComponent(q) + '&id_opd=' + encodeURIComponent(currentOpd))
+            .then(res => res.json())
+            .then(res => {
+                if (res.status === 'success') {
+                    if (res.data.length === 0) {
+                        container.innerHTML = '<div class="text-center text-muted small py-4">Tidak ada pegawai ditemukan dari OPD lain.</div>';
+                        return;
+                    }
+                    let html = '<div class="list-group list-group-flush small">';
+                    res.data.forEach(p => {
+                        let namaEscaped = p.nama_lengkap.replace(/'/g, "\\'");
+                        html += `
+                            <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-2">
+                                <div>
+                                    <strong class="text-dark">${p.nama_lengkap}</strong><br>
+                                    <span class="text-muted" style="font-size:0.7rem;">NIP. ${p.nip} | ${p.jabatan || '-'}</span><br>
+                                    <span class="badge bg-secondary" style="font-size:0.6rem;">Saat ini: ${p.nama_opd || '-'}</span>
+                                </div>
+                                <button type="button" class="btn btn-warning btn-xs rounded-pill px-3 fw-bold" onclick="simpanOverrideTarik(${p.id_pegawai}, '${namaEscaped}')">
+                                    <i class="fas fa-plus me-1"></i> Tarik
+                                </button>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="text-center text-danger small py-4">Gagal memuat data.</div>';
+                }
+            })
+            .catch(err => {
+                container.innerHTML = '<div class="text-center text-danger small py-4">Terjadi kesalahan koneksi.</div>';
+            });
+    }
+
+    function simpanOverrideTarik(id_pegawai, nama) {
+        Swal.fire({
+            title: 'Tarik Pegawai Mutasi?',
+            html: `Tarik <b>${nama}</b> ke dalam rekap TPP bulan <b><?= date('F', mktime(0, 0, 0, $bulan, 10)) ?> <?= $tahun ?></b> untuk OPD ini?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Ya, Tarik Masuk',
+            cancelButtonText: 'Batal',
+            confirmButtonColor: '#ffc107'
+        }).then(result => {
+            if (result.isConfirmed) {
+                Swal.showLoading();
+                let formData = new FormData();
+                formData.append('id_opd', currentOpd);
+                formData.append('bulan', currentBulan);
+                formData.append('tahun', currentTahun);
+                formData.append('id_pegawai', id_pegawai);
+                formData.append('tipe', 'include');
+                formData.append('keterangan', 'Ditarik masuk ke rekap (pejabat lama mutasi)');
+
+                fetch('<?= base_url('cetaktpp/override_save') ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        Swal.fire('Berhasil', res.message, 'success').then(() => location.reload());
+                    } else {
+                        Swal.fire('Gagal', res.message, 'error');
+                    }
+                })
+                .catch(() => Swal.fire('Error', 'Gagal memproses permintaan.', 'error'));
+            }
+        });
+    }
+
+    function excludePegawai(id_pegawai, nama) {
+        Swal.fire({
+            title: 'Keluarkan Pejabat Baru?',
+            html: `Keluarkan <b>${nama}</b> dari rekap TPP bulan <b><?= date('F', mktime(0, 0, 0, $bulan, 10)) ?> <?= $tahun ?></b>?<br><br><small class="text-muted">Gunakan ini untuk pejabat baru yang baru dimutasi masuk agar tidak muncul di laporan bulan lampau.</small>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            confirmButtonText: '<i class="fas fa-user-minus me-1"></i> Ya, Keluarkan',
+            cancelButtonText: 'Batal'
+        }).then(result => {
+            if (result.isConfirmed) {
+                Swal.showLoading();
+                let formData = new FormData();
+                formData.append('id_opd', currentOpd);
+                formData.append('bulan', currentBulan);
+                formData.append('tahun', currentTahun);
+                formData.append('id_pegawai', id_pegawai);
+                formData.append('tipe', 'exclude');
+                formData.append('keterangan', 'Dikeluarkan dari rekap (pejabat baru mutasi)');
+
+                fetch('<?= base_url('cetaktpp/override_save') ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        Swal.fire('Berhasil', res.message, 'success').then(() => location.reload());
+                    } else {
+                        Swal.fire('Gagal', res.message, 'error');
+                    }
+                })
+                .catch(() => Swal.fire('Error', 'Gagal memproses permintaan.', 'error'));
+            }
+        });
+    }
+
+    function hapusOverride(id_pegawai, nama) {
+        Swal.fire({
+            title: 'Batalkan Penyesuaian?',
+            html: `Kembalikan pengaturan untuk <b>${nama}</b> ke default?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Ya, Kembalikan',
+            cancelButtonText: 'Batal'
+        }).then(result => {
+            if (result.isConfirmed) {
+                Swal.showLoading();
+                let formData = new FormData();
+                formData.append('id_opd', currentOpd);
+                formData.append('bulan', currentBulan);
+                formData.append('tahun', currentTahun);
+                formData.append('id_pegawai', id_pegawai);
+
+                fetch('<?= base_url('cetaktpp/override_delete') ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        Swal.fire('Berhasil', res.message, 'success').then(() => location.reload());
+                    } else {
+                        Swal.fire('Gagal', res.message, 'error');
+                    }
+                })
+                .catch(() => Swal.fire('Error', 'Gagal memproses permintaan.', 'error'));
+            }
+        });
+    }
+
+    function resetSemuaOverride() {
+        Swal.fire({
+            title: 'Reset Semua Penyesuaian?',
+            html: `Apakah Anda yakin ingin mereset seluruh penyesuaian pegawai untuk bulan <b><?= date('F', mktime(0, 0, 0, $bulan, 10)) ?> <?= $tahun ?></b> di OPD ini?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            confirmButtonText: 'Ya, Reset Semua',
+            cancelButtonText: 'Batal'
+        }).then(result => {
+            if (result.isConfirmed) {
+                Swal.showLoading();
+                let formData = new FormData();
+                formData.append('id_opd', currentOpd);
+                formData.append('bulan', currentBulan);
+                formData.append('tahun', currentTahun);
+
+                fetch('<?= base_url('cetaktpp/override_reset') ?>', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        Swal.fire('Berhasil', res.message, 'success').then(() => location.reload());
+                    } else {
+                        Swal.fire('Gagal', res.message, 'error');
+                    }
+                })
+                .catch(() => Swal.fire('Error', 'Gagal memproses permintaan.', 'error'));
+            }
+        });
+    }
+
     function generatePDF() {
         const tempat = document.getElementById('inputTempat').value || 'Polewali';
         const tglInput = document.getElementById('inputTanggal').value;
@@ -451,6 +796,9 @@
             align: "center"
         });
 
+        // Sembunyikan tombol aksi mutasi sesaat agar PDF bersih
+        document.querySelectorAll('.btn-override-action').forEach(el => el.style.display = 'none');
+
         doc.autoTable({
             html: '#tabel-tpp',
             startY: 30,
@@ -483,6 +831,9 @@
                 }
             }
         });
+
+        // Kembalikan tampilan tombol aksi
+        document.querySelectorAll('.btn-override-action').forEach(el => el.style.display = '');
 
         let finalY = doc.lastAutoTable.finalY + 10;
         if (finalY > 170) {
