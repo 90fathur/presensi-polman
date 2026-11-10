@@ -428,11 +428,26 @@ class LaporanTukin extends BaseController
                 if ($pr && !empty($pr['jam_masuk_aktual']) && $pr['jam_masuk_aktual'] != '00:00:00' && strtolower($pr['kategori'] ?? '') != 'alpa') {
                     $tot_hadir++;
                     $hadir_hari_ini = true;
-                    if (($pr['status_masuk'] ?? '') == 'Terlambat') $tot_telat++;
+                    $st_m = $pr['status_masuk'] ?? '';
+                    if (strpos($st_m, 'Terlambat') !== false) {
+                        $tot_telat++;
+                    }
 
                     $jam_pulang_target = (!empty($pr['jam_pulang_seharusnya']) && $pr['jam_pulang_seharusnya'] != '00:00:00') ? $pr['jam_pulang_seharusnya'] : '16:00:00';
                     $is_tidak_pulang = (empty($pr['jam_pulang_aktual']) || $pr['jam_pulang_aktual'] == '00:00:00' || $pr['jam_pulang_aktual'] <= '04:00:00') && $tgl < $hari_ini_global;
-                    $is_cepat_pulang = (!empty($pr['jam_pulang_aktual']) && $pr['jam_pulang_aktual'] > '04:00:00' && (($pr['status_pulang'] ?? '') == 'Cepat Pulang' || $pr['jam_pulang_aktual'] < $jam_pulang_target));
+                    
+                    $diff_pc = (!empty($pr['jam_pulang_aktual']) && $pr['jam_pulang_aktual'] > '04:00:00') ? (strtotime($jam_pulang_target) - strtotime($pr['jam_pulang_aktual'])) : 0;
+                    $st_p = $pr['status_pulang'] ?? '';
+                    $is_cepat_pulang = false;
+                    if (!empty($pr['jam_pulang_aktual']) && $pr['jam_pulang_aktual'] > '04:00:00') {
+                        if (strpos($st_p, 'Pulang Cepat') !== false || $st_p === 'Cepat Pulang') {
+                            $is_cepat_pulang = true;
+                        } elseif ($is_nakes && $diff_pc > 0 && $diff_pc <= 900) {
+                            $is_cepat_pulang = false; // Toleransi operan jaga Nakes 15 menit
+                        } elseif ($diff_pc > 0) {
+                            $is_cepat_pulang = true;
+                        }
+                    }
 
                     if (($is_tidak_pulang || $is_cepat_pulang) && !$is_cito) {
                         $tot_cepat++;

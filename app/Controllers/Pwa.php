@@ -1346,6 +1346,12 @@ class Pwa extends BaseController
             $notif_judul = "Presensi Berhasil ✅";
             $notif_pesan = "Data kehadiran Anda telah tersimpan.";
 
+            $nama_opd_user = strtoupper($user_info->nama_opd ?? '');
+            $is_kesehatan_opd = (strpos($nama_opd_user, 'RSUD') !== false || strpos($nama_opd_user, 'PUSKESMAS') !== false || strpos($nama_opd_user, 'KESEHATAN') !== false);
+            $is_jadwal_reguler = (strpos($nama_jk, 'reguler') !== false || strpos($nama_jk, 'umum') !== false || strpos($nama_jk, 'hari kerja') !== false);
+            $pakai_jalur_reguler = (!$is_kesehatan_opd || $is_jadwal_reguler);
+            $is_nakes_shift = (!$pakai_jalur_reguler || !empty($cek_plotting) || (strpos($nama_jk, 'shift') !== false));
+
             if (!$cek) {
                 // [SUPER FIX]: Cegah double-tap lintas hari / bulan (Shift Malam)
                 // Jika pegawai baru saja menyelesaikan shift malam (kurang dari 5 menit lalu), blokir percobaan absen masuk baru
@@ -1383,6 +1389,9 @@ class Pwa extends BaseController
                         } else {
                             $status_m = 'Sangat Baik / Istimewa';
                         }
+                    } elseif ($is_nakes_shift && $menit_keterlambatan <= 15) {
+                        $status_m = 'Baik'; // Toleransi Operan Jaga Shift Nakes (Bebas Potongan P1)
+                        $menit_keterlambatan = 0;
                     } elseif ($menit_keterlambatan <= 30) {
                         $status_m = 'Terlambat (P1)';
                     } elseif ($menit_keterlambatan <= 60) {
@@ -1437,10 +1446,17 @@ class Pwa extends BaseController
                     $status_p = 'Selesai';
                     if (!empty($jam_pulang_seharusnya) && (strtotime($jam_sekarang) < strtotime($jam_pulang_seharusnya))) {
                         $menit_pc = ceil((strtotime($jam_pulang_seharusnya) - strtotime($jam_sekarang)) / 60);
-                        if ($menit_pc <= 30) $status_p = 'Pulang Cepat (P1)';
-                        elseif ($menit_pc <= 60) $status_p = 'Pulang Cepat (P2)';
-                        elseif ($menit_pc <= 90) $status_p = 'Pulang Cepat (P3)';
-                        else $status_p = 'Pulang Cepat (P4)';
+                        if ($menit_pc <= 15) {
+                            $status_p = 'Selesai'; // Toleransi Operan Jaga Shift Malam (15 Menit Bebas Pc1)
+                        } elseif ($menit_pc <= 30) {
+                            $status_p = 'Pulang Cepat (P1)';
+                        } elseif ($menit_pc <= 60) {
+                            $status_p = 'Pulang Cepat (P2)';
+                        } elseif ($menit_pc <= 90) {
+                            $status_p = 'Pulang Cepat (P3)';
+                        } else {
+                            $status_p = 'Pulang Cepat (P4)';
+                        }
                     }
                     if ($is_jadwal_cito) $status_p = 'Selesai';
 
@@ -1566,10 +1582,17 @@ class Pwa extends BaseController
 
                             if (strtotime($jam_sekarang) < strtotime($jam_pulang_target)) {
                                 $menit_pc = ceil((strtotime($jam_pulang_target) - strtotime($jam_sekarang)) / 60);
-                                if ($menit_pc <= 30) $status_p = 'Pulang Cepat (P1)';
-                                elseif ($menit_pc <= 60) $status_p = 'Pulang Cepat (P2)';
-                                elseif ($menit_pc <= 90) $status_p = 'Pulang Cepat (P3)';
-                                else $status_p = 'Pulang Cepat (P4)';
+                                if ($menit_pc <= 15) {
+                                    $status_p = 'Selesai'; // Toleransi Operan Jaga Nakes Shift (15 Menit Bebas Pc1 & Bebas Popup)
+                                } elseif ($menit_pc <= 30) {
+                                    $status_p = 'Pulang Cepat (P1)';
+                                } elseif ($menit_pc <= 60) {
+                                    $status_p = 'Pulang Cepat (P2)';
+                                } elseif ($menit_pc <= 90) {
+                                    $status_p = 'Pulang Cepat (P3)';
+                                } else {
+                                    $status_p = 'Pulang Cepat (P4)';
+                                }
                             } else {
                                 $status_p = 'Selesai';
                             }

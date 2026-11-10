@@ -485,10 +485,18 @@ class TppDinamis extends BaseController
                                 $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
                                 $menit_telat = floor($selisih / 60);
 
-                                if ($menit_telat >= 1 && $menit_telat <= 30) $p1++;
-                                elseif ($menit_telat >= 31 && $menit_telat <= 60) $p2++;
-                                elseif ($menit_telat >= 61 && $menit_telat <= 90) $p3++;
-                                elseif ($menit_telat > 90) $p4++;
+                                if ($is_nakes_user) {
+                                    // Toleransi Operan Jaga Nakes Shift (15 Menit Bebas P1)
+                                    if ($menit_telat > 15 && $menit_telat <= 30) $p1++;
+                                    elseif ($menit_telat >= 31 && $menit_telat <= 60) $p2++;
+                                    elseif ($menit_telat >= 61 && $menit_telat <= 90) $p3++;
+                                    elseif ($menit_telat > 90) $p4++;
+                                } else {
+                                    if ($menit_telat >= 1 && $menit_telat <= 30) $p1++;
+                                    elseif ($menit_telat >= 31 && $menit_telat <= 60) $p2++;
+                                    elseif ($menit_telat >= 61 && $menit_telat <= 90) $p3++;
+                                    elseif ($menit_telat > 90) $p4++;
+                                }
                             }
                         } else {
                             if ($tglStr < $hari_ini) $p4++;
@@ -506,10 +514,18 @@ class TppDinamis extends BaseController
                         if ($l['jam_pulang_aktual'] < $jam_pulang_target) {
                             $selisih = strtotime($jam_pulang_target) - strtotime($l['jam_pulang_aktual']);
                             $menit_pc = floor($selisih / 60);
-                            if ($menit_pc >= 1 && $menit_pc <= 30) $pc1++;
-                            elseif ($menit_pc >= 31 && $menit_pc <= 60) $pc2++;
-                            elseif ($menit_pc >= 61 && $menit_pc <= 90) $pc3++;
-                            elseif ($menit_pc > 90) $pc4++;
+                            if ($is_nakes_user) {
+                                // Toleransi Operan Jaga Nakes Shift (15 Menit Bebas Pc1)
+                                if ($menit_pc > 15 && $menit_pc <= 30) $pc1++;
+                                elseif ($menit_pc >= 31 && $menit_pc <= 60) $pc2++;
+                                elseif ($menit_pc >= 61 && $menit_pc <= 90) $pc3++;
+                                elseif ($menit_pc > 90) $pc4++;
+                            } else {
+                                if ($menit_pc >= 1 && $menit_pc <= 30) $pc1++;
+                                elseif ($menit_pc >= 31 && $menit_pc <= 60) $pc2++;
+                                elseif ($menit_pc >= 61 && $menit_pc <= 90) $pc3++;
+                                elseif ($menit_pc > 90) $pc4++;
+                            }
                         }
                     }
                 }
@@ -1327,10 +1343,18 @@ class TppDinamis extends BaseController
                                         $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
                                         $menit_telat = floor($selisih / 60);
 
-                                        if ($menit_telat >= 1 && $menit_telat <= 30) $res['p1']++;
-                                        elseif ($menit_telat >= 31 && $menit_telat <= 60) $res['p2']++;
-                                        elseif ($menit_telat >= 61 && $menit_telat <= 90) $res['p3']++;
-                                        elseif ($menit_telat > 90) $res['p4']++;
+                                        if ($is_shift_murni) {
+                                            // Toleransi Operan Jaga Nakes Shift (15 Menit Bebas P1)
+                                            if ($menit_telat > 15 && $menit_telat <= 30) $res['p1']++;
+                                            elseif ($menit_telat >= 31 && $menit_telat <= 60) $res['p2']++;
+                                            elseif ($menit_telat >= 61 && $menit_telat <= 90) $res['p3']++;
+                                            elseif ($menit_telat > 90) $res['p4']++;
+                                        } else {
+                                            if ($menit_telat >= 1 && $menit_telat <= 30) $res['p1']++;
+                                            elseif ($menit_telat >= 31 && $menit_telat <= 60) $res['p2']++;
+                                            elseif ($menit_telat >= 61 && $menit_telat <= 90) $res['p3']++;
+                                            elseif ($menit_telat > 90) $res['p4']++;
+                                        }
                                     }
                                 }
                             } else {
@@ -1350,10 +1374,18 @@ class TppDinamis extends BaseController
                                 $selisih = strtotime($jam_pulang_target) - strtotime($l['jam_pulang_aktual']);
                                 $menit_pc = floor($selisih / 60);
 
-                                if ($menit_pc >= 1 && $menit_pc <= 30) $res['pc1']++;
-                                elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
-                                elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
-                                elseif ($menit_pc > 90) $res['pc4']++;
+                                if ($is_shift_murni) {
+                                    // Toleransi Operan Jaga Nakes Shift (15 Menit Bebas Pc1)
+                                    if ($menit_pc > 15 && $menit_pc <= 30) $res['pc1']++;
+                                    elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
+                                    elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
+                                    elseif ($menit_pc > 90) $res['pc4']++;
+                                } else {
+                                    if ($menit_pc >= 1 && $menit_pc <= 30) $res['pc1']++;
+                                    elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
+                                    elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
+                                    elseif ($menit_pc > 90) $res['pc4']++;
+                                }
                             }
                         }
                     }

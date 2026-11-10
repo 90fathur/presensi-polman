@@ -469,6 +469,8 @@ class Rekap extends BaseController
                                         if ($diff <= 0) {
                                             $menit_awal = abs($diff);
                                             $status_db = ($menit_awal >= 30) ? 'Istimewa (Datang Awal 🎖️)' : 'Sangat Baik / Istimewa';
+                                        } elseif ($is_shift_murni && $diff <= 15) {
+                                            $status_db = 'Baik'; // Toleransi Operan Jaga Shift Nakes
                                         } elseif ($diff <= 30) $status_db = 'Terlambat (P1)';
                                         elseif ($diff <= 60) $status_db = 'Terlambat (P2)';
                                         elseif ($diff <= 90) $status_db = 'Terlambat (P3)';
@@ -497,7 +499,9 @@ class Rekap extends BaseController
                                         $target_p = str_replace('.', ':', $config['jam_pulang']);
                                         if ($p['jam_pulang_aktual'] < $target_p) {
                                             $diff_p = (strtotime($target_p) - strtotime($p['jam_pulang_aktual'])) / 60;
-                                            if ($diff_p <= 30) $st_pulang = 'Pulang Cepat (P1)';
+                                            if ($is_shift_murni && $diff_p <= 15) {
+                                                $st_pulang = 'Selesai'; // Toleransi Operan Jaga Shift Nakes
+                                            } elseif ($diff_p <= 30) $st_pulang = 'Pulang Cepat (P1)';
                                             elseif ($diff_p <= 60) $st_pulang = 'Pulang Cepat (P2)';
                                             elseif ($diff_p <= 90) $st_pulang = 'Pulang Cepat (P3)';
                                             else $st_pulang = 'Pulang Cepat (P4)';
@@ -1684,10 +1688,18 @@ class Rekap extends BaseController
                                             $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
                                             $m = floor($selisih / 60);
 
-                                            if ($m >= 1 && $m <= 30) $res['p1']++;
-                                            elseif ($m >= 31 && $m <= 60) $res['p2']++;
-                                            elseif ($m >= 61 && $m <= 90) $res['p3']++;
-                                            elseif ($m > 90) $res['p4']++;
+                                            if ($is_shift_murni) {
+                                                // Toleransi Operan Jaga Shift Nakes (15 Menit Bebas P1)
+                                                if ($m > 15 && $m <= 30) $res['p1']++;
+                                                elseif ($m >= 31 && $m <= 60) $res['p2']++;
+                                                elseif ($m >= 61 && $m <= 90) $res['p3']++;
+                                                elseif ($m > 90) $res['p4']++;
+                                            } else {
+                                                if ($m >= 1 && $m <= 30) $res['p1']++;
+                                                elseif ($m >= 31 && $m <= 60) $res['p2']++;
+                                                elseif ($m >= 61 && $m <= 90) $res['p3']++;
+                                                elseif ($m > 90) $res['p4']++;
+                                            }
                                         }
                                     }
                                 } else {
@@ -1708,10 +1720,18 @@ class Rekap extends BaseController
                                         $selisih = strtotime($jam_pulang_target) - strtotime($l['jam_pulang_aktual']);
                                         $menit_pc = floor($selisih / 60);
 
-                                        if ($menit_pc >= 1 && $menit_pc <= 30) $res['pc1']++;
-                                        elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
-                                        elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
-                                        elseif ($menit_pc > 90) $res['pc4']++;
+                                        if ($is_shift_murni) {
+                                            // Toleransi Operan Jaga Shift Nakes (15 Menit Bebas Pc1)
+                                            if ($menit_pc > 15 && $menit_pc <= 30) $res['pc1']++;
+                                            elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
+                                            elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
+                                            elseif ($menit_pc > 90) $res['pc4']++;
+                                        } else {
+                                            if ($menit_pc >= 1 && $menit_pc <= 30) $res['pc1']++;
+                                            elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
+                                            elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
+                                            elseif ($menit_pc > 90) $res['pc4']++;
+                                        }
                                     }
                                 }
                             }
@@ -2330,10 +2350,18 @@ class Rekap extends BaseController
                                         $selisih = strtotime($l['jam_masuk_aktual']) - strtotime($jam_seharusnya);
                                         $m = floor($selisih / 60);
 
-                                        if ($m >= 1 && $m <= 30) $res['p1']++;
-                                        elseif ($m >= 31 && $m <= 60) $res['p2']++;
-                                        elseif ($m >= 61 && $m <= 90) $res['p3']++;
-                                        elseif ($m > 90) $res['p4']++;
+                                        if ($is_nakes) {
+                                            // Toleransi Operan Jaga Shift Nakes (15 Menit Bebas P1)
+                                            if ($m > 15 && $m <= 30) $res['p1']++;
+                                            elseif ($m >= 31 && $m <= 60) $res['p2']++;
+                                            elseif ($m >= 61 && $m <= 90) $res['p3']++;
+                                            elseif ($m > 90) $res['p4']++;
+                                        } else {
+                                            if ($m >= 1 && $m <= 30) $res['p1']++;
+                                            elseif ($m >= 31 && $m <= 60) $res['p2']++;
+                                            elseif ($m >= 61 && $m <= 90) $res['p3']++;
+                                            elseif ($m > 90) $res['p4']++;
+                                        }
                                     }
                                 }
                             } else {
@@ -2354,10 +2382,18 @@ class Rekap extends BaseController
                                     $selisih = strtotime($jam_pulang_target) - strtotime($l['jam_pulang_aktual']);
                                     $menit_pc = floor($selisih / 60);
 
-                                    if ($menit_pc >= 1 && $menit_pc <= 30) $res['pc1']++;
-                                    elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
-                                    elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
-                                    elseif ($menit_pc > 90) $res['pc4']++;
+                                    if ($is_nakes) {
+                                        // Toleransi Operan Jaga Shift Nakes (15 Menit Bebas Pc1)
+                                        if ($menit_pc > 15 && $menit_pc <= 30) $res['pc1']++;
+                                        elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
+                                        elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
+                                        elseif ($menit_pc > 90) $res['pc4']++;
+                                    } else {
+                                        if ($menit_pc >= 1 && $menit_pc <= 30) $res['pc1']++;
+                                        elseif ($menit_pc >= 31 && $menit_pc <= 60) $res['pc2']++;
+                                        elseif ($menit_pc >= 61 && $menit_pc <= 90) $res['pc3']++;
+                                        elseif ($menit_pc > 90) $res['pc4']++;
+                                    }
                                 }
                             }
                         }
